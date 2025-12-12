@@ -89,7 +89,7 @@ export default function LancamentosDashboard() {
     if (contasSel.length > 0) {
       q = q.in("conta_id", contasSel);
     }
-    q.then(({ data, error }) => {
+      q.then(({ data, error }) => {
       if (error) {
         toast({ title: "Erro", description: error.message, variant: "destructive" });
         return;
@@ -190,18 +190,21 @@ export default function LancamentosDashboard() {
     if (termo.length < 3) { setCatOpts([]); return; }
     const tipoCat = editMov.tipo === "ENTRADA" ? "RECEITA" : "DESPESA";
     setCatLoading(true);
-    supabase
-      .from("categories")
-      .select("id,name")
-      .eq("tipo", tipoCat)
-      .ilike("name", `%${termo}%`)
-      .order("name")
-      .limit(20)
-      .then(({ data }) => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("categories")
+          .select("id,name")
+          .eq("tipo", tipoCat)
+          .ilike("name", `%${termo}%`)
+          .order("name")
+          .limit(20);
         const arr = (data || []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }));
         setCatOpts(arr);
-      })
-      .finally(() => setCatLoading(false));
+      } finally {
+        setCatLoading(false);
+      }
+    })();
   }, [catSearch, editOpen, editMov]);
 
   useEffect(() => {
@@ -209,17 +212,20 @@ export default function LancamentosDashboard() {
     const termo = benefSearch.trim();
     if (termo.length < 3) { setBenefOpts([]); return; }
     setBenefLoading(true);
-    supabase
-      .from("beneficiaries")
-      .select("id,name")
-      .ilike("name", `%${termo}%`)
-      .order("name")
-      .limit(20)
-      .then(({ data }) => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("beneficiaries")
+          .select("id,name")
+          .ilike("name", `%${termo}%`)
+          .order("name")
+          .limit(20);
         const arr = (data || []).map((b: { id: string; name: string }) => ({ id: b.id, name: b.name }));
         setBenefOpts(arr);
-      })
-      .finally(() => setBenefLoading(false));
+      } finally {
+        setBenefLoading(false);
+      }
+    })();
   }, [benefSearch, editOpen]);
 
   function handleSelectCategoria(id: string, name: string) {

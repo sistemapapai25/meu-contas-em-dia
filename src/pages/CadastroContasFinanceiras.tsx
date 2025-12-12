@@ -1,7 +1,7 @@
 // src/pages/CadastroContasFinanceiras.tsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,12 +23,12 @@ import { Separator } from "@/components/ui/separator";
 import { Banknote, Plus, Edit2, Trash2, Search } from "lucide-react";
 
 type ContaFinanceira = Tables<"contas_financeiras">;
-type TipoConta = ContaFinanceira["tipo"]; // "CAIXA" | "BANCO"
+type TipoConta = TablesInsert<"contas_financeiras">["tipo"]; // "CAIXA" | "BANCO"
 
 export default function CadastroContasFinanceiras() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const LOGO_BUCKET = (import.meta.env.VITE_LOGO_BUCKET as string) || "logos";
+  const LOGO_BUCKET = "Logos"; // Nome exato do bucket no Supabase
 
   const [contas, setContas] = useState<ContaFinanceira[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +135,7 @@ export default function CadastroContasFinanceiras() {
     setEditing(c);
     setForm({
       nome: c.nome ?? "",
-      tipo: c.tipo,
+      tipo: c.tipo as TipoConta,
       instituicao: c.instituicao ?? "",
       agencia: c.agencia ?? "",
       numero: c.numero ?? "",
