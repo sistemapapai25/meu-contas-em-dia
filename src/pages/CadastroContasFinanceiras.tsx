@@ -28,7 +28,7 @@ type TipoConta = ContaFinanceira["tipo"]; // "CAIXA" | "BANCO"
 export default function CadastroContasFinanceiras() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const LOGO_BUCKET = (import.meta.env.VITE_LOGO_BUCKET as string) || "logos";
+  const LOGO_BUCKET = "Logos"; // Nome exato do bucket no Supabase
 
   const [contas, setContas] = useState<ContaFinanceira[]>([]);
   const [loading, setLoading] = useState(true);
