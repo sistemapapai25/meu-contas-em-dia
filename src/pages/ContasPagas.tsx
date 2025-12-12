@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
+ 
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,8 +34,9 @@ const ContasPagas = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [dataRef, setDataRef] = useState(() => new Date());
-  const [contas, setContas] = useState<{ id: string; nome: string }[]>([]);
+  const [contas, setContas] = useState<{ id: string; nome: string; instituicao?: string | null; logo?: string | null }[]>([]);
   const [contasSel, setContasSel] = useState<string[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [busca, setBusca] = useState('');
   const [modoCard, setModoCard] = useState(false);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -50,10 +51,10 @@ const ContasPagas = () => {
     if (!supabase || !user) return;
     supabase
       .from('contas_financeiras')
-      .select('id,nome')
+      .select('id,nome,instituicao,logo')
       .order('nome')
       .then(({ data }) => {
-        const arr = (data || []).map((c: { id: string; nome: string }) => ({ id: c.id, nome: c.nome }));
+        const arr = (data || []).map((c: { id: string; nome: string; instituicao?: string | null; logo?: string | null }) => ({ id: c.id, nome: c.nome, instituicao: c.instituicao ?? null, logo: c.logo ?? null }));
         setContas(arr);
       });
   }, [user]);
@@ -156,15 +157,39 @@ const ContasPagas = () => {
             <div className="relative">
               <Input placeholder="Pesquisar" value={busca} onChange={e=>setBusca(e.target.value)} className="w-64"/>
             </div>
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline"><Filter className="w-4 h-4 mr-2"/>Contas</Button>
+                <Button variant="outline">
+                  {(() => {
+                    const first = contasSel.length ? contas.find(c => c.id === contasSel[0]) : null;
+                    return (
+                      <div className="flex items-center gap-2">
+                        {first?.logo ? (
+                          <img src={first.logo} alt="Logo" className="h-5 w-5 object-contain" />
+                        ) : null}
+                        <span>{first?.nome || 'Todas Contas e Cartões'}</span>
+                      </div>
+                    );
+                  })()}
+                </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="min-w-[220px]">
+              <DropdownMenuContent className="min-w-[260px]">
+                <DropdownMenuItem onSelect={(e)=>{e.preventDefault(); setContasSel([]); setMenuOpen(false);}}>
+                  <div className="flex items-center gap-2">
+                    <span>Todas Contas e Cartões</span>
+                  </div>
+                </DropdownMenuItem>
                 {contas.map(c => (
-                  <DropdownMenuItem key={c.id} onSelect={(e)=>{e.preventDefault(); const s = new Set(contasSel); if (s.has(c.id)) { s.delete(c.id); } else { s.add(c.id); } setContasSel(Array.from(s));}}>
-                    <Checkbox checked={contasSel.includes(c.id)} onCheckedChange={(v)=>{const s=new Set(contasSel); if (v === true) s.add(c.id); else s.delete(c.id); setContasSel(Array.from(s));}}/>
-                    <span className="ml-2">{c.nome}</span>
+                  <DropdownMenuItem
+                    key={c.id}
+                    onSelect={(e)=>{ e.preventDefault(); setContasSel([c.id]); setMenuOpen(false); }}
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      {c.logo ? (
+                        <img src={c.logo} alt="Logo" className="h-5 w-5 object-contain" />
+                      ) : null}
+                      <span>{c.nome}</span>
+                    </div>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

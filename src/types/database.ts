@@ -30,6 +30,8 @@ export interface Categoria {
   user_id: string;
   created_at: string;
   deleted_at?: string;
+  parent_id?: string | null;
+  ordem?: number;
 }
 
 export interface Lancamento {

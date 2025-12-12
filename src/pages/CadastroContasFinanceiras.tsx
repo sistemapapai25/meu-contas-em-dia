@@ -472,7 +472,18 @@ export default function CadastroContasFinanceiras() {
                           {c.tipo === "BANCO" ? "Banco" : "Caixa"}
                         </Badge>
                       </td>
-                      <td className="p-3">{c.instituicao ?? "-"}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          {c.logo ? (
+                            <img
+                              src={c.logo}
+                              alt="Logo"
+                              className="h-6 w-6 object-contain"
+                            />
+                          ) : null}
+                          <span>{c.instituicao ?? "-"}</span>
+                        </div>
+                      </td>
                       <td className="p-3">{c.agencia ?? "-"}</td>
                       <td className="p-3">{c.numero ?? "-"}</td>
                       <td className="p-3 text-right">{formatMoney(c.saldo_inicial || 0)}</td>

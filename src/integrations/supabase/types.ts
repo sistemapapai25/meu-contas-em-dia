@@ -99,6 +99,8 @@ export type Database = {
           tipo: Database["public"]["Enums"]["tipo_categoria"];
           created_at: string | null;
           deleted_at: string | null;
+          parent_id: string | null;
+          ordem: number;
         };
         Insert: {
           id?: string;
@@ -107,9 +109,19 @@ export type Database = {
           tipo?: Database["public"]["Enums"]["tipo_categoria"];
           created_at?: string | null;
           deleted_at?: string | null;
+          parent_id?: string | null;
+          ordem?: number;
         };
         Update: Partial<Database["public"]["Tables"]["categories"]["Insert"]>;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "categories_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["id"];
+          },
+        ];
       };
 
       // ---------- NOVAS TABELAS DE CONTAS E MOVIMENTOS ----------
@@ -154,6 +166,8 @@ export type Database = {
           origem: "CULTO" | "LANCAMENTO" | "AJUSTE" | "EXTRATO" | null;
           ref_id: string | null; // referencia ao culto/lancamento/ajuste
           created_at: string | null;
+          categoria_id: string | null;
+          beneficiario_id: string | null;
         };
         Insert: {
           id?: string;
@@ -166,6 +180,8 @@ export type Database = {
           origem?: "CULTO" | "LANCAMENTO" | "AJUSTE" | "EXTRATO" | null;
           ref_id?: string | null;
           created_at?: string | null;
+          categoria_id?: string | null;
+          beneficiario_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["movimentos_financeiros"]["Insert"]>;
         Relationships: [
@@ -174,6 +190,20 @@ export type Database = {
             columns: ["conta_id"];
             isOneToOne: false;
             referencedRelation: "contas_financeiras";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "movimentos_financeiros_categoria_id_fkey";
+            columns: ["categoria_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "movimentos_financeiros_beneficiario_id_fkey";
+            columns: ["beneficiario_id"];
+            isOneToOne: false;
+            referencedRelation: "beneficiaries";
             referencedColumns: ["id"];
           }
         ];

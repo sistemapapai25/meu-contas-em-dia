@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,9 +23,27 @@ const NovaCategoriaModal = ({ onSuccess, trigger, tipoFiltro }: NovaCategoriaMod
     name: '',
     tipo: tipoFiltro || ('DESPESA' as 'DESPESA' | 'RECEITA')
   });
+  const [mode, setMode] = useState<'ROOT' | 'CHILD'>('ROOT');
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [parents, setParents] = useState<{ id: string; name: string }[]>([]);
 
   const { toast } = useToast();
   const { user } = useAuth();
+
+  // carregar pais quando abrir ou tipo mudar
+  useEffect(() => {
+    if (!open || !user) return;
+    supabase
+      .from('categories')
+      .select('id,name,tipo')
+      .eq('user_id', user.id)
+      .eq('tipo', formData.tipo)
+      .is('parent_id', null)
+      .order('name')
+      .then(({ data }) => {
+        setParents((data || []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
+      });
+  }, [open, user, formData.tipo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +65,8 @@ const NovaCategoriaModal = ({ onSuccess, trigger, tipoFiltro }: NovaCategoriaMod
         .insert({
           user_id: user?.id,
           name: formData.name.trim(),
-          tipo: formData.tipo
+          tipo: formData.tipo,
+          parent_id: mode === 'CHILD' ? parentId : null
         })
         .select()
         .single();
@@ -62,6 +82,8 @@ const NovaCategoriaModal = ({ onSuccess, trigger, tipoFiltro }: NovaCategoriaMod
         name: '',
         tipo: tipoFiltro || 'DESPESA'
       });
+      setMode('ROOT');
+      setParentId(null);
 
       setOpen(false);
       onSuccess?.(data);
@@ -99,6 +121,19 @@ const NovaCategoriaModal = ({ onSuccess, trigger, tipoFiltro }: NovaCategoriaMod
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            <Label>Tipo de criação</Label>
+            <RadioGroup value={mode} onValueChange={(v: 'ROOT'|'CHILD') => setMode(v)} className="flex gap-4">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="ROOT" id="root" />
+                <Label htmlFor="root">Categoria raiz</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="CHILD" id="child" />
+                <Label htmlFor="child">Subcategoria</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="name">Nome *</Label>
             <Input
               id="name"
@@ -125,6 +160,22 @@ const NovaCategoriaModal = ({ onSuccess, trigger, tipoFiltro }: NovaCategoriaMod
               </SelectContent>
             </Select>
           </div>
+
+          {mode === 'CHILD' && (
+            <div className="space-y-2">
+              <Label htmlFor="parent">Categoria pai *</Label>
+              <Select value={parentId ?? ''} onValueChange={(value) => setParentId(value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a categoria pai" />
+                </SelectTrigger>
+                <SelectContent>
+                  {parents.filter(p=>p.id!==undefined).map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button
