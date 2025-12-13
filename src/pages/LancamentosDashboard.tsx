@@ -488,17 +488,26 @@ export default function LancamentosDashboard() {
         body: { url: urlToAnalyze, user_id: user?.id, descricao: m.descricao || '' }
       });
       if (error) throw error;
+      
       const recebedorNome = (data as any)?.recebedor_nome as string | undefined;
-      if (recebedorNome) {
-        toast({ title: "Dados do Recebedor", description: `Para: ${recebedorNome}` });
+      const valor = (data as any)?.valor as string | undefined;
+      const dataComprovante = (data as any)?.data as string | undefined;
+      
+      if (recebedorNome || valor) {
+        const parts: string[] = [];
+        if (recebedorNome) parts.push(`Para: ${recebedorNome}`);
+        if (valor) parts.push(`Valor: ${valor}`);
+        if (dataComprovante) parts.push(`Data: ${dataComprovante}`);
+        toast({ title: "Dados do Comprovante", description: parts.join(" | ") });
         return;
       }
+      
       const sugestao = (data as any)?.sugestao as { categoria_id?: string | null; beneficiario_id?: string | null; motivo?: string } | undefined;
       if (sugestao?.beneficiario_id) {
         toast({ title: "Dados do Recebedor", description: sugestao.motivo ? `${sugestao.motivo}` : `Beneficiário identificado.` });
         return;
       }
-      toast({ title: "Leitura feita", description: "Nenhuma informação de recebedor encontrada.", });
+      toast({ title: "Leitura feita", description: "Nenhuma informação de recebedor encontrada." });
     } catch (e: unknown) {
       toast({ title: "Erro", description: e instanceof Error ? e.message : "Falha ao ler comprovante.", variant: "destructive" });
     } finally {
