@@ -222,7 +222,14 @@ export default function LancamentosDashboard() {
 
   useEffect(() => {
     if (!supabase || !user) return;
-    const contasIds = contasSel.length ? contasSel : contas.map(c => c.id);
+
+    // Se "Todas as Contas" estiver selecionado (array vazio), zera o Saldo Inicial
+    if (contasSel.length === 0) {
+      setSaldoInicial(0);
+      return;
+    }
+
+    const contasIds = contasSel;
     const baseInicial = contas
       .filter(c => contasIds.includes(c.id))
       .reduce((s, c) => s + Number(c.saldo_inicial || 0), 0);
@@ -571,6 +578,14 @@ export default function LancamentosDashboard() {
     if (tipoVisao === 'TRANSFERENCIAS') return rows.filter(r => r.categoria_nome === 'Transferência Interna');
     return rows;
   }, [rows, tipoVisao]);
+
+  const totais = useMemo(() => {
+    if (contasSel.length === 0) return { entradas: 0, saidas: 0 };
+    const base = rows.filter(r => r.categoria_nome !== 'Transferência Interna');
+    const entradas = base.filter(r => r.tipo === 'ENTRADA').reduce((acc, r) => acc + r.valor, 0);
+    const saidas = base.filter(r => r.tipo === 'SAIDA').reduce((acc, r) => acc + r.valor, 0);
+    return { entradas, saidas };
+  }, [rows, contasSel]);
 
   const saldoAtual = useMemo(() => {
     const base = tipoVisao === 'TRANSFERENCIAS' ? rowsView : rowsView.filter(r => r.categoria_nome !== 'Transferência Interna');
@@ -1170,11 +1185,38 @@ export default function LancamentosDashboard() {
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <Card>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Saldo atual no período</div>
-              <div className={`text-xl font-semibold ${saldoAtual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(saldoAtual)}</div>
+            <CardContent className="p-4 flex flex-col justify-between h-full">
+              <span className="text-sm text-muted-foreground">Saldo Anterior</span>
+              <div className="text-xl font-semibold mt-1 text-foreground">{formatCurrency(saldoInicial)}</div>
+              <span className="text-xs text-muted-foreground">Saldo acumulado até o início do mês</span>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 flex flex-col justify-between h-full">
+              <span className="text-sm text-muted-foreground">Entradas</span>
+              <div className="text-xl font-semibold mt-1 text-emerald-600">{formatCurrency(totais.entradas)}</div>
+              <span className="text-xs text-muted-foreground">Total de receitas no mês</span>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 flex flex-col justify-between h-full">
+              <span className="text-sm text-muted-foreground">Saídas</span>
+              <div className="text-xl font-semibold mt-1 text-red-600">{formatCurrency(totais.saidas)}</div>
+              <span className="text-xs text-muted-foreground">Total de despesas no mês</span>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 flex flex-col justify-between h-full">
+              <span className="text-sm text-muted-foreground">Saldo Final</span>
+              <div className={`text-xl font-semibold mt-1 ${(saldoInicial + totais.entradas - totais.saidas) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                {formatCurrency(saldoInicial + totais.entradas - totais.saidas)}
+              </div>
+              <span className="text-xs text-muted-foreground">Saldo projetado ao fim do mês</span>
             </CardContent>
           </Card>
         </div>

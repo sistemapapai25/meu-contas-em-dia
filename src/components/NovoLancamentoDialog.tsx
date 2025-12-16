@@ -22,7 +22,7 @@ interface NovoLancamentoDialogProps {
 interface Categoria {
   id: string;
   name: string;
-  tipo: 'DESPESA' | 'RECEITA';
+  tipo: 'DESPESA' | 'RECEITA' | 'TRANSFERENCIA';
 }
 
 interface Beneficiario {
