@@ -6,8 +6,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { ChevronLeft, ChevronRight, Filter, Rows, Square, Edit3, Search, X, Wand2, FileText, ExternalLink, ScanText, Receipt, MoreVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight, Filter, Rows, Square, Edit3, Search, X, Wand2, FileText, ExternalLink, ScanText, Receipt, MoreVertical, Download, FileSpreadsheet } from "lucide-react";
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import * as XLSX from 'xlsx';
 import { ymdToBr } from "@/utils/date";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1064,12 +1065,104 @@ export default function LancamentosDashboard() {
     }
   }
 
+  function exportarCSV() {
+    try {
+      const data = rowsView.map(r => ({
+        Data: ymdToBr(r.data),
+        Descrição: r.descricao,
+        Categoria: r.categoria_nome,
+        Beneficiário: r.beneficiario_nome,
+        Valor: r.valor,
+        Tipo: r.tipo,
+        Conta: r.conta_nome
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Lançamentos");
+      XLSX.writeFile(wb, `extrato-${mes + 1}-${ano}.csv`);
+    } catch (e) {
+      toast({ title: "Erro", description: "Falha ao exportar CSV", variant: "destructive" });
+    }
+  }
+
+  async function exportarPDF() {
+    try {
+      const pdfDoc = await PDFDocument.create();
+      let page = pdfDoc.addPage([595.28, 841.89]); // A4
+      const { width, height } = page.getSize();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      
+      let y = height - 50;
+      const margin = 50;
+      
+      page.drawText(`Extrato de Lançamentos - ${tituloMes}`, { x: margin, y, size: 18, font: fontBold });
+      y -= 30;
+      
+      // Headers
+      page.drawText("Data", { x: margin, y, size: 10, font: fontBold });
+      page.drawText("Descrição", { x: margin + 60, y, size: 10, font: fontBold });
+      page.drawText("Valor", { x: width - margin - 80, y, size: 10, font: fontBold });
+      y -= 20;
+      
+      for (const r of rowsView) {
+        if (y < 50) {
+          page = pdfDoc.addPage([595.28, 841.89]);
+          y = height - 50;
+        }
+        
+        page.drawText(ymdToBr(r.data), { x: margin, y, size: 9, font: font });
+        
+        // Truncate description
+        let desc = r.descricao || "";
+        if (desc.length > 45) desc = desc.slice(0, 42) + "...";
+        page.drawText(desc, { x: margin + 60, y, size: 9, font: font });
+        
+        const valorFmt = formatCurrency(r.valor);
+        const color = r.tipo === 'ENTRADA' ? rgb(0, 0.6, 0) : rgb(0.8, 0, 0);
+        
+        page.drawText(valorFmt, { x: width - margin - 80, y, size: 9, font: font, color });
+        
+        y -= 15;
+      }
+      
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `extrato-${mes + 1}-${ano}.pdf`;
+      link.click();
+      
+    } catch (e) {
+      toast({ title: "Erro", description: "Falha ao exportar PDF", variant: "destructive" });
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Extrato de Lançamentos</h1>
         <div className="flex items-center justify-between gap-3 mb-4">
-          <div />
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Exportar</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={exportarCSV}>
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  CSV (Excel)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportarPDF}>
+                  <FileText className="w-4 h-4 mr-2" />
+                  PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <div className="flex items-center gap-2">
             <Button variant={modoCard ? "secondary" : "ghost"} onClick={() => setModoCard(false)}><Rows className="w-4 h-4" /></Button>
             <Button variant={modoCard ? "ghost" : "secondary"} onClick={() => setModoCard(true)}><Square className="w-4 h-4" /></Button>
