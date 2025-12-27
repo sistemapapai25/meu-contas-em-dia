@@ -157,42 +157,95 @@ export default function ImportarExtrato() {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as unknown as unknown[][];
 
-    // Encontrar linha de cabeçalho real
+    // Encontrar linha de cabeçalho real - suporta múltiplos formatos
     let headerRowIdx = -1;
+    let formatType: "padrao" | "cora" = "padrao";
+    
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
       const r = rows[i].map((x: unknown) => String(x ?? "").toLowerCase());
+      // Formato padrão: Data, Descrição, Crédito, Débito
       if (r.some((c: string) => c.includes("data")) && r.some((c: string) => c.includes("descri"))) {
         if (r.some((c: string) => c.includes("crédito")) || r.some((c: string) => c.includes("credito"))) {
           headerRowIdx = i;
+          formatType = "padrao";
           break;
         }
       }
+      // Formato Cora: Data, Transação, Tipo Transação, Identificação, Valor
+      if (r.some((c: string) => c === "data") && 
+          r.some((c: string) => c === "transação" || c === "transacao") && 
+          r.some((c: string) => c.includes("tipo")) && 
+          r.some((c: string) => c === "valor")) {
+        headerRowIdx = i;
+        formatType = "cora";
+        break;
+      }
     }
+    
     if (headerRowIdx < 0) {
-      toast({ title: "Cabeçalho não encontrado", description: "Verifique se a planilha tem as colunas Data, Descrição, Crédito, Débito", variant: "destructive" });
+      toast({ title: "Cabeçalho não encontrado", description: "Verifique se a planilha tem as colunas Data, Descrição, Crédito, Débito ou formato Cora (Data, Transação, Tipo Transação, Valor)", variant: "destructive" });
       return;
     }
 
     const header = rows[headerRowIdx].map((x: unknown) => String(x ?? "").trim());
-    const idxData = header.findIndex((h: string) => h.toLowerCase().includes("data"));
-    const idxDesc = header.findIndex((h: string) => h.toLowerCase().includes("descri"));
-    const idxCred = header.findIndex((h: string) => h.toLowerCase().includes("crédito") || h.toLowerCase().includes("credito"));
-    const idxDeb = header.findIndex((h: string) => h.toLowerCase().includes("débito") || h.toLowerCase().includes("debito"));
     const parsed: LinhaPreview[] = [];
-    for (let i = headerRowIdx + 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || r.length === 0) continue;
-      const data = normalizarDataPT(r[idxData]);
-      const descricao = r[idxDesc] != null ? String(r[idxDesc]).trim() : null;
-      const credito = normalizarValor(r[idxCred]);
-      const debito = normalizarValor(r[idxDeb]);
-      let tipo: "ENTRADA" | "SAIDA" | null = null;
-      let valor: number | null = null;
-      if (credito && !debito) { tipo = "ENTRADA"; valor = credito; }
-      else if (debito && !credito) { tipo = "SAIDA"; valor = debito; }
-      const valido = Boolean(data && descricao && valor && tipo);
-      if (!data && !descricao && !credito && !debito) continue; // pula linhas vazias
-      parsed.push({ idx: i, data, descricao, credito, debito, tipo, valor, valido, selecionado: valido, erro: valido ? undefined : "Linha incompleta" });
+    
+    if (formatType === "cora") {
+      // Formato Cora
+      const idxData = header.findIndex((h: string) => h.toLowerCase() === "data");
+      const idxTransacao = header.findIndex((h: string) => h.toLowerCase() === "transação" || h.toLowerCase() === "transacao");
+      const idxTipo = header.findIndex((h: string) => h.toLowerCase().includes("tipo"));
+      const idxValor = header.findIndex((h: string) => h.toLowerCase() === "valor");
+      
+      for (let i = headerRowIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0) continue;
+        const data = normalizarDataPT(r[idxData]);
+        const descricao = r[idxTransacao] != null ? String(r[idxTransacao]).trim() : null;
+        const tipoStr = r[idxTipo] != null ? String(r[idxTipo]).toUpperCase().trim() : "";
+        const valorRaw = normalizarValor(r[idxValor]);
+        
+        let tipo: "ENTRADA" | "SAIDA" | null = null;
+        let valor: number | null = null;
+        let credito: number | null = null;
+        let debito: number | null = null;
+        
+        if (tipoStr.includes("CRÉD") || tipoStr.includes("CRED")) {
+          tipo = "ENTRADA";
+          valor = valorRaw ? Math.abs(valorRaw) : null;
+          credito = valor;
+        } else if (tipoStr.includes("DÉB") || tipoStr.includes("DEB")) {
+          tipo = "SAIDA";
+          valor = valorRaw ? Math.abs(valorRaw) : null;
+          debito = valor;
+        }
+        
+        const valido = Boolean(data && descricao && valor && tipo);
+        if (!data && !descricao && !valorRaw) continue;
+        parsed.push({ idx: i, data, descricao, credito, debito, tipo, valor, valido, selecionado: valido, erro: valido ? undefined : "Linha incompleta" });
+      }
+    } else {
+      // Formato padrão
+      const idxData = header.findIndex((h: string) => h.toLowerCase().includes("data"));
+      const idxDesc = header.findIndex((h: string) => h.toLowerCase().includes("descri"));
+      const idxCred = header.findIndex((h: string) => h.toLowerCase().includes("crédito") || h.toLowerCase().includes("credito"));
+      const idxDeb = header.findIndex((h: string) => h.toLowerCase().includes("débito") || h.toLowerCase().includes("debito"));
+      
+      for (let i = headerRowIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0) continue;
+        const data = normalizarDataPT(r[idxData]);
+        const descricao = r[idxDesc] != null ? String(r[idxDesc]).trim() : null;
+        const credito = normalizarValor(r[idxCred]);
+        const debito = normalizarValor(r[idxDeb]);
+        let tipo: "ENTRADA" | "SAIDA" | null = null;
+        let valor: number | null = null;
+        if (credito && !debito) { tipo = "ENTRADA"; valor = credito; }
+        else if (debito && !credito) { tipo = "SAIDA"; valor = debito; }
+        const valido = Boolean(data && descricao && valor && tipo);
+        if (!data && !descricao && !credito && !debito) continue;
+        parsed.push({ idx: i, data, descricao, credito, debito, tipo, valor, valido, selecionado: valido, erro: valido ? undefined : "Linha incompleta" });
+      }
     }
     setLinhas(parsed);
   }
