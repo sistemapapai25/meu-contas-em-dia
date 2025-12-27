@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 }
 
 serve(async (req: Request) => {
@@ -13,9 +14,9 @@ serve(async (req: Request) => {
 
   try {
     const url = Deno.env.get("SUPABASE_URL") ?? ""
-    const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") ?? ""
+    const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     if (!url || !serviceKey) {
-      throw new Error("Missing SUPABASE_URL or SERVICE_ROLE_KEY")
+      throw new Error("Missing SUPABASE_URL or SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE_KEY")
     }
 
     let token: string | null = null
