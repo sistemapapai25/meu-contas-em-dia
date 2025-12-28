@@ -94,6 +94,7 @@ export default function Desafios() {
   const [pessoaSel, setPessoaSel] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deletingDesafio, setDeletingDesafio] = useState<string | null>(null);
 
   const resetForm = () => {
     setTitulo("");
@@ -309,6 +310,45 @@ export default function Desafios() {
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ativo: !r.ativo } : r)));
   };
 
+  const excluirDesafio = async (row: DesafioRow) => {
+    if (!canManage) return;
+    if (!confirm(`Excluir o desafio "${row.titulo}"? Todos os participantes e parcelas serão removidos.`)) return;
+
+    setDeletingDesafio(row.id);
+    try {
+      // Buscar participantes do desafio
+      const { data: parts } = await supabase
+        .from("desafio_participantes")
+        .select("id")
+        .eq("desafio_id", row.id);
+
+      // Excluir parcelas de todos os participantes
+      if (parts && parts.length > 0) {
+        const partIds = parts.map((p) => p.id);
+        await supabase.from("desafio_parcelas").delete().in("participante_id", partIds);
+      }
+
+      // Excluir participantes
+      await supabase.from("desafio_participantes").delete().eq("desafio_id", row.id);
+
+      // Excluir desafio
+      const { error } = await supabase.from("desafios").delete().eq("id", row.id);
+      if (error) throw error;
+
+      toast({ title: "Excluído", description: `Desafio "${row.titulo}" removido.` });
+      
+      // Atualizar lista
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+      if (selectedId === row.id) {
+        setSelectedId(rows.find((r) => r.id !== row.id)?.id ?? null);
+      }
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : "Falha ao excluir", variant: "destructive" });
+    } finally {
+      setDeletingDesafio(null);
+    }
+  };
+
   const copyLink = async (token: string) => {
     const url = makePublicUrl(`/carne/${token}`);
     try {
@@ -465,6 +505,7 @@ export default function Desafios() {
                     <TableRow>
                       <TableHead>Título</TableHead>
                       <TableHead className="w-24">Ativo</TableHead>
+                      <TableHead className="w-20">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -477,6 +518,16 @@ export default function Desafios() {
                         <TableCell className="font-medium">{r.titulo}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Switch checked={r.ativo} onCheckedChange={() => toggleDesafioAtivo(r)} />
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={deletingDesafio === r.id}
+                            onClick={() => excluirDesafio(r)}
+                          >
+                            {deletingDesafio === r.id ? "..." : "Excluir"}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
