@@ -131,6 +131,10 @@ export default function Pessoas() {
       toast({ title: "Atenção", description: "Informe o nome.", variant: "destructive" });
       return;
     }
+    if (!telefone.trim()) {
+      toast({ title: "Atenção", description: "Informe o telefone.", variant: "destructive" });
+      return;
+    }
 
     setSaving(true);
 
@@ -226,12 +230,12 @@ export default function Pessoas() {
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: João Silva" />
+                <Label>Nome <span className="text-destructive">*</span></Label>
+                <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: João Silva" required />
               </div>
               <div className="space-y-2">
-                <Label>Telefone</Label>
-                <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Ex.: (11) 99999-9999" />
+                <Label>Telefone <span className="text-destructive">*</span></Label>
+                <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Ex.: (11) 99999-9999" required />
               </div>
               <div className="space-y-2">
                 <Label>Email</Label>
