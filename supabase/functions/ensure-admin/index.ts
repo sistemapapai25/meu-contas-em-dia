@@ -25,12 +25,12 @@ serve(async (req: Request) => {
 
     const url = Deno.env.get("SUPABASE_URL") ?? ""
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? ""
-    const serviceKey =
-      Deno.env.get("SERVICE_ROLE_KEY") ??
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-      ""
+    const serviceKeyCandidates = [
+      { name: "SUPABASE_SERVICE_ROLE_KEY", value: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "" },
+      { name: "SERVICE_ROLE_KEY", value: Deno.env.get("SERVICE_ROLE_KEY") ?? "" },
+    ].filter((k) => Boolean(k.value))
 
-    if (!url || !anonKey || !serviceKey) {
+    if (!url || !anonKey || serviceKeyCandidates.length === 0) {
       return new Response(JSON.stringify({ error: "Missing SUPABASE_URL / keys" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
@@ -45,10 +45,13 @@ serve(async (req: Request) => {
 
     const { data: userData, error: userErr } = await supabase.auth.getUser()
     if (userErr || !userData?.user) {
-      return new Response(JSON.stringify({ error: "Invalid authentication" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      })
+      return new Response(
+        JSON.stringify({ error: "Invalid authentication", details: (userErr as any)?.message ?? null }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 401,
+        }
+      )
     }
 
     const email = (userData.user.email || "").toLowerCase()
@@ -59,36 +62,55 @@ serve(async (req: Request) => {
       })
     }
 
-    const supabaseAdmin = createClient(url, serviceKey)
-
-    const tryUpsert = async (role: string) => {
-      return await supabaseAdmin
+    const tryUpsert = async (client: any, role: string) => {
+      return await client
         .from("user_roles")
-        .upsert(
-          { user_id: userData.user.id, role },
-          { onConflict: "user_id,role" }
-        )
+        .upsert({ user_id: userData.user.id, role }, { onConflict: "user_id,role" })
     }
 
-    let { error: roleErr } = await tryUpsert("ADMIN")
-    if (roleErr) {
-      const msg = String((roleErr as any)?.message ?? "")
-      if (msg.toLowerCase().includes("invalid input value for enum")) {
-        ;({ error: roleErr } = await tryUpsert("admin"))
+    const ensureRoleWithClient = async (client: any) => {
+      let { error: roleErr } = await tryUpsert(client, "ADMIN")
+      if (roleErr) {
+        const msg = String((roleErr as any)?.message ?? "")
+        if (msg.toLowerCase().includes("invalid input value for enum")) {
+          ;({ error: roleErr } = await tryUpsert(client, "admin"))
+        }
       }
+      return roleErr as any
     }
 
-    if (roleErr) {
-      return new Response(JSON.stringify({ error: (roleErr as any)?.message ?? "Failed" }), {
+    let lastInvalidKeyErr: any = null
+
+    for (const k of serviceKeyCandidates) {
+      console.log(`ensure-admin: trying service key from ${k.name}`)
+      const supabaseAdmin = createClient(url, k.value)
+      const roleErr = await ensureRoleWithClient(supabaseAdmin)
+      if (!roleErr) {
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        })
+      }
+
+      const msg = String((roleErr as any)?.message ?? "")
+      if (msg.toLowerCase().includes("invalid api key")) {
+        lastInvalidKeyErr = roleErr
+        continue
+      }
+
+      return new Response(JSON.stringify({ error: msg || "Failed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
       })
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    })
+    return new Response(
+      JSON.stringify({ error: "Invalid API key", details: (lastInvalidKeyErr as any)?.message ?? null }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed"
     return new Response(JSON.stringify({ error: message }), {
