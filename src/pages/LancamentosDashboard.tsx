@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
 import { Calculator, ChevronLeft, ChevronRight, Filter, Rows, Square, Edit3, Search, X, Wand2, FileText, ExternalLink, ScanText, Receipt, MoreVertical } from "lucide-react";
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
@@ -39,6 +40,7 @@ const mesesPt = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "ju
 
 export default function LancamentosDashboard() {
   const { user } = useAuth();
+  const { isAdmin, loading: roleLoading } = useUserRole();
   const { toast } = useToast();
   const [dataRef, setDataRef] = useState(() => new Date());
   const [contas, setContas] = useState<{ id: string; nome: string; logo?: string | null; saldo_inicial?: number; saldo_inicial_em?: string | null }[]>([]);
@@ -488,15 +490,17 @@ export default function LancamentosDashboard() {
   };
 
   useEffect(() => {
-    if (!supabase || !user) return;
+    if (!supabase || !user || roleLoading) return;
     let cancelled = false;
     (async () => {
       let q = supabase
         .from("movimentos_financeiros")
         .select("id, data, descricao, valor, tipo, origem, conta_id, categoria_id, beneficiario_id, comprovante_url, contas:contas_financeiras(nome), categoria:categories(name), beneficiario:beneficiaries(name)")
-        .eq("user_id", user.id)
         .or(filtroPeriodoMovimentos)
         .order("data");
+      if (!isAdmin) {
+        q = q.eq("user_id", user.id);
+      }
       if (contasSel.length > 0) {
         q = q.in("conta_id", contasSel);
       }
@@ -526,10 +530,10 @@ export default function LancamentosDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [user, inicio, fimExclusivo, contasSel, toast]);
+  }, [user, inicio, fimExclusivo, contasSel, toast, isAdmin, roleLoading]);
 
   useEffect(() => {
-    if (!supabase || !user) return;
+    if (!supabase || !user || roleLoading) return;
     let cancelled = false;
     (async () => {
       const contasConsideradas = contasSel.length ? contas.filter(c => contasSel.includes(c.id)) : contas;
@@ -545,8 +549,10 @@ export default function LancamentosDashboard() {
       let q = supabase
         .from("movimentos_financeiros")
         .select("data,valor,tipo,conta_id")
-        .eq("user_id", user.id)
         .lt("data", inicio);
+      if (!isAdmin) {
+        q = q.eq("user_id", user.id);
+      }
       if (contasSel.length > 0) {
         q = q.in("conta_id", contasSel);
       }
@@ -572,7 +578,7 @@ export default function LancamentosDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [user, inicio, contasSel, contas, toast]);
+  }, [user, inicio, contasSel, contas, toast, isAdmin, roleLoading]);
 
   const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
   function onlyDigits(s: string | null | undefined) { return String(s ?? '').replace(/\D+/g, ''); }

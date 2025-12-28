@@ -31,6 +31,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const ensureAdminIfNeeded = (u: User) => {
+    const email = (u.email || '').toLowerCase();
+    if (email !== 'andrielle.alvess@gmail.com') return Promise.resolve();
+    return supabase.functions.invoke('ensure-admin').then(
+      () => undefined,
+      () => undefined
+    );
+  };
+
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -43,6 +52,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         if (event === 'SIGNED_IN' && session?.user) {
           setTimeout(() => {
             createUserProfile(session.user);
+            ensureAdminIfNeeded(session.user);
           }, 0);
         }
       }
@@ -53,6 +63,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      if (session?.user) ensureAdminIfNeeded(session.user);
     });
 
     return () => subscription.unsubscribe();
