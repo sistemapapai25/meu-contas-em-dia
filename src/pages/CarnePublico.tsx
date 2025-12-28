@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ymdToBr } from "@/utils/date";
 
@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 
 type ApiParcela = {
   id: string;
@@ -78,7 +79,12 @@ export default function CarnePublico() {
   return (
     <div className="min-h-screen bg-background">
       <main className="container mx-auto px-4 py-6 space-y-6">
-        <h1 className="text-2xl font-bold">{titulo}</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl font-bold">{titulo}</h1>
+          <Button asChild variant="outline">
+            <Link to="/auth">Entrar</Link>
+          </Button>
+        </div>
 
         <Card>
           <CardHeader>
