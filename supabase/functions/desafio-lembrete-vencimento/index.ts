@@ -60,15 +60,17 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Calcular a data de amanhã (vencimento em 1 dia)
+    // Calcular datas
     const hoje = new Date();
+    const dataHoje = hoje.toISOString().split("T")[0];
     const amanha = new Date(hoje);
     amanha.setDate(amanha.getDate() + 1);
     const dataAmanha = amanha.toISOString().split("T")[0];
     
-    console.log(`Data de hoje: ${hoje.toISOString().split("T")[0]}`);
-    console.log(`Buscando parcelas com vencimento em: ${dataAmanha} (amanhã)`);
+    console.log(`Data de hoje: ${dataHoje}`);
+    console.log(`Data de amanhã: ${dataAmanha}`);
 
+    // Buscar parcelas que vencem HOJE ou AMANHÃ
     const { data: parcelas, error: parcelasError } = await supabase
       .from("desafio_parcelas")
       .select(`
@@ -93,7 +95,7 @@ serve(async (req) => {
           )
         )
       `)
-      .eq("vencimento", dataAmanha)
+      .in("vencimento", [dataHoje, dataAmanha])
       .eq("status", "ABERTO");
 
     if (parcelasError) {
@@ -104,7 +106,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Encontradas ${parcelas?.length || 0} parcelas vencendo amanhã`);
+    console.log(`Encontradas ${parcelas?.length || 0} parcelas (hoje + amanhã)`);
 
     let enviados = 0;
     let falhas = 0;
@@ -122,12 +124,16 @@ serve(async (req) => {
       const baseUrl = Deno.env.get("PUBLIC_URL") || "https://ghzwyigouhvljubitowt.lovable.app";
       const link = `${baseUrl}/carne/${participante.token_link}`;
 
-      const mensagem = `Olá ${pessoa.nome}! 📅\n\nLembrete: *amanhã* vence sua parcela do desafio *${desafio?.titulo}*!\n\n💰 Valor: ${formatCurrency(parcela.valor)}\n📆 Vencimento: ${new Date(parcela.vencimento).toLocaleDateString("pt-BR")}\n\nAcesse seu carnê:\n${link}\n\nDeus abençoe! 🙏`;
+      // Mensagem diferente para hoje e amanhã
+      const isHoje = parcela.vencimento === dataHoje;
+      const mensagem = isHoje
+        ? `Olá ${pessoa.nome}! ⚠️\n\n*Hoje* é o dia de vencimento da sua parcela do desafio *${desafio?.titulo}*!\n\n💰 Valor: ${formatCurrency(parcela.valor)}\n📆 Vencimento: ${new Date(parcela.vencimento + "T12:00:00").toLocaleDateString("pt-BR")}\n\nAcesse seu carnê:\n${link}\n\nDeus abençoe! 🙏`
+        : `Olá ${pessoa.nome}! 📅\n\nLembrete: *amanhã* vence sua parcela do desafio *${desafio?.titulo}*!\n\n💰 Valor: ${formatCurrency(parcela.valor)}\n📆 Vencimento: ${new Date(parcela.vencimento + "T12:00:00").toLocaleDateString("pt-BR")}\n\nAcesse seu carnê:\n${link}\n\nDeus abençoe! 🙏`;
 
       const enviado = await enviarWhatsApp(pessoa.telefone, mensagem);
       if (enviado) {
         enviados++;
-        console.log(`Lembrete enviado para ${pessoa.nome}`);
+        console.log(`Lembrete enviado para ${pessoa.nome} (${isHoje ? "HOJE" : "amanhã"})`);
       } else {
         falhas++;
         console.log(`Falha ao enviar para ${pessoa.nome}`);
@@ -138,7 +144,8 @@ serve(async (req) => {
     }
 
     const resultado = {
-      data: hoje,
+      data_hoje: dataHoje,
+      data_amanha: dataAmanha,
       total_parcelas: parcelas?.length || 0,
       enviados,
       falhas,
