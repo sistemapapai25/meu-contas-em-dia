@@ -550,16 +550,16 @@ export default function Desafios() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Adicionar pessoa</Label>
-                    <Select value={pessoaSel} onValueChange={setPessoaSel}>
+                    <Select value={pessoaSel} onValueChange={(val) => setPessoaSel(val ?? "")}>
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        {pessoas
-                          .filter((p) => p.ativo)
+                        {(pessoas ?? [])
+                          .filter((p) => p.ativo && p.id)
                           .map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nome}
+                            <SelectItem key={`pessoa-${p.id}`} value={p.id}>
+                              {p.nome ?? "(sem nome)"}
                             </SelectItem>
                           ))}
                       </SelectContent>
