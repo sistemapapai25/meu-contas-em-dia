@@ -189,6 +189,38 @@ export default function Carne() {
     setDataPagamento("");
   };
 
+  const desfazerPagamento = async () => {
+    if (!parcelaPagamento || !selectedParticipante) return;
+
+    if (!confirm("Tem certeza que deseja desfazer este pagamento?")) return;
+
+    setSalvandoPagamento(true);
+
+    const { error } = await supabase
+      .from("desafio_parcelas")
+      .update({
+        status: "ABERTO",
+        pago_valor: null,
+        pago_em: null,
+      })
+      .eq("id", parcelaPagamento.id);
+
+    setSalvandoPagamento(false);
+
+    if (error) {
+      toast({ title: "Erro", description: error.message, variant: "destructive", duration: 3000 });
+      return;
+    }
+
+    toast({ title: "Sucesso", description: "Pagamento desfeito!", duration: 3000 });
+    fecharModalPagamento();
+
+    // Recarregar parcelas
+    if (selectedParticipante) {
+      loadParcelas(selectedParticipante.id);
+    }
+  };
+
   const enviarWhatsApp = async (numero: string, mensagem: string) => {
     try {
       const { data, error } = await supabase.functions.invoke("whatsapp-send-message", {
@@ -433,11 +465,9 @@ export default function Carne() {
                         <TableCell>{parcela.pago_em ? new Date(parcela.pago_em).toLocaleDateString("pt-BR") : "-"}</TableCell>
                         <TableCell>{parcela.pago_valor ? formatCurrency(parcela.pago_valor) : "-"}</TableCell>
                         <TableCell>
-                          {parcela.status !== "PAGO" && (
-                            <Button size="sm" onClick={() => abrirModalPagamento(parcela, index)}>
-                              Pagar
-                            </Button>
-                          )}
+                          <Button size="sm" variant={parcela.status === "PAGO" ? "outline" : "default"} onClick={() => abrirModalPagamento(parcela, index)}>
+                            {parcela.status === "PAGO" ? "Ver" : "Pagar"}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -453,7 +483,7 @@ export default function Carne() {
       <Dialog open={!!parcelaPagamento} onOpenChange={(open) => !open && fecharModalPagamento()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Registrar Pagamento</DialogTitle>
+            <DialogTitle>{parcelaPagamento?.status === "PAGO" ? "Detalhes do Pagamento" : "Registrar Pagamento"}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -468,40 +498,61 @@ export default function Carne() {
               <div className="font-medium">
                 Valor: {parcelaPagamento ? formatCurrency(parcelaPagamento.valor) : "-"}
               </div>
+              {parcelaPagamento?.status === "PAGO" && (
+                <div className="mt-2 pt-2 border-t">
+                  <div className="font-medium text-green-600">
+                    Pago em: {parcelaPagamento.pago_em ? new Date(parcelaPagamento.pago_em).toLocaleDateString("pt-BR") : "-"}
+                  </div>
+                  <div className="font-medium text-green-600">
+                    Valor Pago: {parcelaPagamento.pago_valor ? formatCurrency(parcelaPagamento.pago_valor) : "-"}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Valor Pago</Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={valorPago}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^\d]/g, "");
-                  const num = parseInt(raw || "0", 10) / 100;
-                  setValorPago(formatCurrencyInput(num));
-                }}
-                placeholder="0,00"
-              />
-            </div>
+            {parcelaPagamento?.status !== "PAGO" && (
+              <>
+                <div className="space-y-2">
+                  <Label>Valor Pago</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={valorPago}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^\d]/g, "");
+                      const num = parseInt(raw || "0", 10) / 100;
+                      setValorPago(formatCurrencyInput(num));
+                    }}
+                    placeholder="0,00"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label>Data do Pagamento</Label>
-              <Input
-                type="date"
-                value={dataPagamento}
-                onChange={(e) => setDataPagamento(e.target.value)}
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label>Data do Pagamento</Label>
+                  <Input
+                    type="date"
+                    value={dataPagamento}
+                    onChange={(e) => setDataPagamento(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {parcelaPagamento?.status === "PAGO" && (
+              <Button variant="destructive" onClick={desfazerPagamento} disabled={salvandoPagamento} className="w-full sm:w-auto">
+                {salvandoPagamento ? "Desfazendo..." : "Desfazer Pagamento"}
+              </Button>
+            )}
             <Button variant="outline" onClick={fecharModalPagamento} disabled={salvandoPagamento}>
-              Cancelar
+              {parcelaPagamento?.status === "PAGO" ? "Fechar" : "Cancelar"}
             </Button>
-            <Button onClick={confirmarPagamento} disabled={salvandoPagamento}>
-              {salvandoPagamento ? "Salvando..." : "Confirmar Pagamento"}
-            </Button>
+            {parcelaPagamento?.status !== "PAGO" && (
+              <Button onClick={confirmarPagamento} disabled={salvandoPagamento}>
+                {salvandoPagamento ? "Salvando..." : "Confirmar Pagamento"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
