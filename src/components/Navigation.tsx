@@ -50,14 +50,6 @@ const Navigation = () => {
                       <Link to="/" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Dashboard</Link>
 
                       <div>
-                        <div className={groupTitleCls(['/meus-desafios', '/meus-desafios/gestao-carnes'])}>Desafios Financeiros</div>
-                        <div className="flex flex-col">
-                          <Link to="/meus-desafios" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Gestão de Desafios</Link>
-                          <Link to="/meus-desafios/gestao-carnes" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Gestão de Carnês</Link>
-                        </div>
-                      </div>
-
-                      <div>
                         <div className={groupTitleCls(['/financeiro/agenda', '/contas-a-pagar', '/contas-pagas', '/relatorio-pagamentos', '/financeiro/resumo-anual'])}>Movimentações</div>
                         <div className="flex flex-col">
                           <Link to="/financeiro/agenda" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Agenda Financeira</Link>
@@ -82,6 +74,14 @@ const Navigation = () => {
                           <Link to="/financeiro/lancamentos" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Lançamentos</Link>
                           <Link to="/movimentacoes/importar-extrato" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Importar Extrato</Link>
                           <Link to="/financeiro/resumo-anual" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Resumo Anual</Link>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className={groupTitleCls(['/meus-desafios', '/meus-desafios/gestao-carnes'])}>Desafios Financeiros</div>
+                        <div className="flex flex-col">
+                          <Link to="/meus-desafios" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Gestão de Desafios</Link>
+                          <Link to="/meus-desafios/gestao-carnes" className="px-3 py-2 rounded-md text-sm hover:bg-muted" onClick={() => setIsOpen(false)}>Gestão de Carnês</Link>
                         </div>
                       </div>
 
@@ -121,20 +121,6 @@ const Navigation = () => {
       <div className="bg-background border-b">
         <div className="container mx-auto px-4">
           <div className="flex items-center gap-6 overflow-x-auto">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className={groupCls(['/meus-desafios', '/meus-desafios/gestao-carnes'])}>Desafios Financeiros</button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem asChild>
-                  <Link to="/meus-desafios">Gestão de Desafios</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/meus-desafios/gestao-carnes">Gestão de Carnês</Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className={groupCls(['/financeiro/agenda', '/contas-a-pagar', '/contas-pagas', '/relatorio-pagamentos', '/financeiro/resumo-anual'])}>Movimentações</button>
@@ -185,6 +171,20 @@ const Navigation = () => {
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/financeiro/resumo-anual">Resumo Anual</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className={groupCls(['/meus-desafios', '/meus-desafios/gestao-carnes'])}>Desafios Financeiros</button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem asChild>
+                  <Link to="/meus-desafios">Gestão de Desafios</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/meus-desafios/gestao-carnes">Gestão de Carnês</Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
