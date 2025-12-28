@@ -8,3 +8,5 @@ verify_jwt = false
 [functions.create-user]
 
 [functions.whatsapp-send-message]
+
+[functions.desafio-lembrete-vencimento]
