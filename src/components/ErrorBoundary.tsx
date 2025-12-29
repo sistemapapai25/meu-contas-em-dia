@@ -29,14 +29,18 @@ export class ErrorBoundary extends Component<Props, State> {
     // Clear any cached state that might cause issues
     try {
       sessionStorage.clear();
-    } catch {}
+    } catch (err) {
+      void err;
+    }
     window.location.reload();
   };
 
   handleGoHome = () => {
     try {
       sessionStorage.clear();
-    } catch {}
+    } catch (err) {
+      void err;
+    }
     window.location.href = "/";
   };
 

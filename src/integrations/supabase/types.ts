@@ -421,6 +421,7 @@ export type Database = {
           descricao: string | null
           dia_vencimento: number
           id: string
+          lembrete_dias_antes: number[]
           qtd_parcelas: number
           titulo: string
           valor_mensal: number
@@ -432,6 +433,7 @@ export type Database = {
           descricao?: string | null
           dia_vencimento?: number
           id?: string
+          lembrete_dias_antes?: number[]
           qtd_parcelas?: number
           titulo: string
           valor_mensal?: number
@@ -443,6 +445,7 @@ export type Database = {
           descricao?: string | null
           dia_vencimento?: number
           id?: string
+          lembrete_dias_antes?: number[]
           qtd_parcelas?: number
           titulo?: string
           valor_mensal?: number

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ type DesafioRow = {
   qtd_parcelas: number;
   data_inicio: string;
   dia_vencimento: number;
+  lembrete_dias_antes?: number[];
   ativo: boolean;
   created_at: string;
   participantes_count?: number;
@@ -82,12 +84,15 @@ export default function Desafios() {
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingDesafioId, setEditingDesafioId] = useState<string | null>(null);
+  const [supportsLembreteDias, setSupportsLembreteDias] = useState(true);
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [valorMensal, setValorMensal] = useState("50");
   const [qtdParcelas, setQtdParcelas] = useState("12");
   const [dataInicio, setDataInicio] = useState("");
   const [diaVenc, setDiaVenc] = useState("10");
+  const [lembreteDiasAntes, setLembreteDiasAntes] = useState("0,1");
   const [ativo, setAtivo] = useState(true);
 
   const [pessoas, setPessoas] = useState<PessoaOpt[]>([]);
@@ -97,13 +102,30 @@ export default function Desafios() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingDesafio, setDeletingDesafio] = useState<string | null>(null);
 
+  const [mensagem, setMensagem] = useState("");
+  const [destinatario, setDestinatario] = useState<string>("__all__");
+  const [sendingMensagem, setSendingMensagem] = useState(false);
+
+  const sortedParticipantes = useMemo(() => {
+    const getNome = (p: ParticipanteRow) => (p.pessoas?.nome ?? p.pessoa_id ?? "").trim();
+    return [...participantes].sort((a, b) => {
+      const na = getNome(a);
+      const nb = getNome(b);
+      const cmp = na.localeCompare(nb, "pt-BR", { sensitivity: "base" });
+      if (cmp !== 0) return cmp;
+      return a.id.localeCompare(b.id);
+    });
+  }, [participantes]);
+
   const resetForm = () => {
+    setEditingDesafioId(null);
     setTitulo("");
     setDescricao("");
     setValorMensal("50");
     setQtdParcelas("12");
     setDataInicio("");
     setDiaVenc("10");
+    setLembreteDiasAntes("0,1");
     setAtivo(true);
   };
 
@@ -116,10 +138,32 @@ export default function Desafios() {
     }
 
     setLoading(true);
-    const { data, error } = await supabase
-      .from("desafios")
-      .select("id,titulo,descricao,valor_mensal,qtd_parcelas,data_inicio,dia_vencimento,ativo,created_at,desafio_participantes(count)")
-      .order("created_at", { ascending: false });
+    const selectBase =
+      "id,titulo,descricao,valor_mensal,qtd_parcelas,data_inicio,dia_vencimento,ativo,created_at,desafio_participantes(count)";
+    const selectWithLembrete = `${selectBase},lembrete_dias_antes`;
+
+    let data: unknown[] | null = null;
+    let error: { message: string } | null = null;
+
+    const withRes = await supabase.from("desafios").select(selectWithLembrete).order("created_at", { ascending: false });
+    if (!withRes.error) {
+      data = withRes.data as unknown[];
+      setSupportsLembreteDias(true);
+    } else if (String(withRes.error.message || "").includes("lembrete_dias_antes") && String(withRes.error.message || "").includes("does not exist")) {
+      const withoutRes = await supabase.from("desafios").select(selectBase).order("created_at", { ascending: false });
+      data = (withoutRes.data as unknown[]) ?? null;
+      error = (withoutRes.error as any) ?? null;
+      setSupportsLembreteDias(false);
+      toast({
+        title: "Atenção",
+        description: "Seu banco ainda não tem a coluna de lembretes. Usando padrão 0,1 por enquanto.",
+        variant: "destructive",
+      });
+    } else {
+      data = (withRes.data as unknown[]) ?? null;
+      error = withRes.error as any;
+      setSupportsLembreteDias(true);
+    }
     setLoading(false);
 
     if (error) {
@@ -129,6 +173,7 @@ export default function Desafios() {
 
     const list = ((data ?? []) as unknown as (DesafioRow & { desafio_participantes: { count: number }[] })[]).map((d) => ({
       ...d,
+      lembrete_dias_antes: Array.isArray(d.lembrete_dias_antes) ? d.lembrete_dias_antes : [0, 1],
       participantes_count: d.desafio_participantes?.[0]?.count ?? 0,
     }));
     setRows(list);
@@ -183,7 +228,7 @@ export default function Desafios() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, canManage]);
 
-  const handleCreate = async () => {
+  const handleSaveDesafio = async () => {
     if (!canManage) return;
     if (!titulo.trim()) {
       toast({ title: "Atenção", description: "Informe o título.", variant: "destructive" });
@@ -197,6 +242,22 @@ export default function Desafios() {
     const valor = Number(valorMensal);
     const qtd = Number(qtdParcelas);
     const dia = Number(diaVenc);
+
+    const diasRaw = lembreteDiasAntes
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => Number(s));
+    const diasInvalidos = diasRaw.some((n) => !Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 365);
+    if (diasRaw.length === 0 || diasInvalidos) {
+      toast({
+        title: "Atenção",
+        description: "Dias de lembrete inválidos. Ex.: 0,1,3",
+        variant: "destructive",
+      });
+      return;
+    }
+    const diasLembrete = Array.from(new Set(diasRaw)).sort((a, b) => a - b);
 
     if (!Number.isFinite(valor) || valor <= 0) {
       toast({ title: "Atenção", description: "Valor mensal inválido.", variant: "destructive" });
@@ -212,31 +273,62 @@ export default function Desafios() {
     }
 
     setSaving(true);
-    const { data, error } = await supabase
-      .from("desafios")
-      .insert({
-        titulo: titulo.trim(),
-        descricao: descricao.trim() ? descricao.trim() : null,
-        valor_mensal: valor,
-        qtd_parcelas: qtd,
-        data_inicio: dataInicio,
-        dia_vencimento: dia,
-        ativo,
-      })
-      .select("id")
-      .maybeSingle();
+    const payloadBase = {
+      titulo: titulo.trim(),
+      descricao: descricao.trim() ? descricao.trim() : null,
+      valor_mensal: valor,
+      qtd_parcelas: qtd,
+      data_inicio: dataInicio,
+      dia_vencimento: dia,
+      ativo,
+    };
+    const payload = supportsLembreteDias ? { ...payloadBase, lembrete_dias_antes: diasLembrete } : payloadBase;
+
+    let result: { data: any; error: any } = editingDesafioId
+      ? await supabase.from("desafios").update(payload).eq("id", editingDesafioId).select("id").maybeSingle()
+      : await supabase.from("desafios").insert(payload).select("id").maybeSingle();
+
+    if (
+      result.error &&
+      supportsLembreteDias &&
+      String(result.error.message || "").includes("lembrete_dias_antes") &&
+      String(result.error.message || "").includes("does not exist")
+    ) {
+      setSupportsLembreteDias(false);
+      toast({
+        title: "Atenção",
+        description: "Seu banco ainda não tem a coluna de lembretes. Salvando sem essa configuração por enquanto.",
+        variant: "destructive",
+      });
+      result = editingDesafioId
+        ? await supabase.from("desafios").update(payloadBase).eq("id", editingDesafioId).select("id").maybeSingle()
+        : await supabase.from("desafios").insert(payloadBase).select("id").maybeSingle();
+    }
     setSaving(false);
 
-    if (error) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    if (result.error) {
+      toast({ title: "Erro", description: result.error.message, variant: "destructive" });
       return;
     }
 
-    toast({ title: "Sucesso", description: "Desafio criado." });
+    toast({ title: "Sucesso", description: editingDesafioId ? "Desafio atualizado." : "Desafio criado." });
     setOpen(false);
     resetForm();
     await loadDesafios();
-    if (data?.id) setSelectedId(data.id);
+    if (result.data?.id) setSelectedId(result.data.id);
+  };
+
+  const abrirEditarDesafio = (row: DesafioRow) => {
+    setEditingDesafioId(row.id);
+    setTitulo(row.titulo ?? "");
+    setDescricao(row.descricao ?? "");
+    setValorMensal(String(row.valor_mensal ?? 0));
+    setQtdParcelas(String(row.qtd_parcelas ?? 12));
+    setDataInicio(row.data_inicio ?? "");
+    setDiaVenc(String(row.dia_vencimento ?? 10));
+    setLembreteDiasAntes((row.lembrete_dias_antes ?? [0, 1]).join(","));
+    setAtivo(!!row.ativo);
+    setOpen(true);
   };
 
   const enviarWhatsApp = async (numero: string, mensagem: string) => {
@@ -416,6 +508,71 @@ export default function Desafios() {
     }
   };
 
+  const enviarMensagem = async () => {
+    if (!canManage) return;
+    if (!selectedId || !selected) {
+      toast({ title: "Atenção", description: "Selecione um desafio.", variant: "destructive" });
+      return;
+    }
+
+    const msg = mensagem.trim();
+    if (!msg) {
+      toast({ title: "Atenção", description: "Digite uma mensagem.", variant: "destructive" });
+      return;
+    }
+
+    const lista =
+      destinatario === "__all__"
+        ? sortedParticipantes
+            .map((p) => ({
+              id: p.id,
+              nome: p.pessoas?.nome ?? "Participante",
+              telefone: p.pessoas?.telefone ?? null,
+            }))
+            .filter((p) => !!p.telefone)
+        : (() => {
+            const p = sortedParticipantes.find((x) => x.id === destinatario);
+            if (!p) return [];
+            return [
+              {
+                id: p.id,
+                nome: p.pessoas?.nome ?? "Participante",
+                telefone: p.pessoas?.telefone ?? null,
+              },
+            ].filter((x) => !!x.telefone);
+          })();
+
+    if (lista.length === 0) {
+      toast({ title: "Atenção", description: "Nenhum participante com telefone para enviar.", variant: "destructive" });
+      return;
+    }
+
+    setSendingMensagem(true);
+    let enviados = 0;
+    let falhas = 0;
+
+    for (const item of lista) {
+      const ok = await enviarWhatsApp(item.telefone as string, msg);
+      if (ok) enviados++;
+      else falhas++;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    setSendingMensagem(false);
+
+    if (falhas > 0) {
+      toast({
+        title: "Envio concluído",
+        description: `Enviados: ${enviados}. Falhas: ${falhas}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({ title: "Envio concluído", description: `Mensagem enviada para ${enviados} participante(s).` });
+    setMensagem("");
+  };
+
   if (!user) return null;
 
   if (!roleLoading && !isAdmin) {
@@ -447,7 +604,7 @@ export default function Desafios() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Novo desafio</DialogTitle>
+              <DialogTitle>{editingDesafioId ? "Editar desafio" : "Novo desafio"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -478,14 +635,26 @@ export default function Desafios() {
                   <Input value={diaVenc} onChange={(e) => setDiaVenc(e.target.value)} inputMode="numeric" />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Quando enviar os lembretes</Label>
+                <Input
+                  value={lembreteDiasAntes}
+                  onChange={(e) => setLembreteDiasAntes(e.target.value)}
+                  placeholder="Ex.: 0,1,3"
+                  inputMode="text"
+                />
+                <div className="text-xs text-muted-foreground">
+                  Digite números separados por vírgula. Ex.: 0,1 ou 0,1,3. 0 = no dia do vencimento. 1 = 1 dia antes. 2 = 2 dias antes.
+                </div>
+              </div>
               <div className="flex items-center justify-between">
                 <Label>Ativo</Label>
                 <Switch checked={ativo} onCheckedChange={setAtivo} />
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={handleCreate} disabled={saving}>
-                Salvar
+              <Button onClick={handleSaveDesafio} disabled={saving}>
+                {editingDesafioId ? "Atualizar" : "Salvar"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -510,7 +679,7 @@ export default function Desafios() {
                       <TableHead>Título</TableHead>
                       <TableHead className="w-28 text-center">Participantes</TableHead>
                       <TableHead className="w-24">Ativo</TableHead>
-                      <TableHead className="w-20">Ações</TableHead>
+                      <TableHead className="w-52">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -526,14 +695,19 @@ export default function Desafios() {
                           <Switch checked={r.ativo} onCheckedChange={() => toggleDesafioAtivo(r)} />
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={deletingDesafio === r.id}
-                            onClick={() => excluirDesafio(r)}
-                          >
-                            {deletingDesafio === r.id ? "..." : "Excluir"}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => abrirEditarDesafio(r)}>
+                              Editar
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={deletingDesafio === r.id}
+                              onClick={() => excluirDesafio(r)}
+                            >
+                              {deletingDesafio === r.id ? "..." : "Excluir"}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -581,7 +755,7 @@ export default function Desafios() {
                 {participantes.length === 0 ? (
                   <div className="text-sm text-muted-foreground">Nenhum participante.</div>
                 ) : (
-                  <div className="overflow-auto">
+                  <div className="max-h-[520px] overflow-auto rounded-md border">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -590,7 +764,7 @@ export default function Desafios() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {participantes.map((p) => (
+                        {sortedParticipantes.map((p) => (
                           <TableRow key={p.id}>
                             <TableCell className="font-medium">
                               {p.pessoas?.nome ?? p.pessoa_id}
@@ -615,6 +789,47 @@ export default function Desafios() {
                     </Table>
                   </div>
                 )}
+
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                    <div className="space-y-2 flex-1">
+                      <Label>Enviar para</Label>
+                      <Select value={destinatario} onValueChange={setDestinatario}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">Todos os participantes</SelectItem>
+                          {sortedParticipantes.map((p) => (
+                            <SelectItem key={`dest-${p.id}`} value={p.id}>
+                              {p.pessoas?.nome ?? p.pessoa_id}
+                              {!p.pessoas?.telefone ? " (sem telefone)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="sm:w-40">
+                      <Button
+                        className="w-full"
+                        onClick={enviarMensagem}
+                        disabled={sendingMensagem || !mensagem.trim() || participantes.length === 0}
+                      >
+                        {sendingMensagem ? "Enviando..." : "Enviar"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Mensagem</Label>
+                    <Textarea
+                      value={mensagem}
+                      onChange={(e) => setMensagem(e.target.value)}
+                      placeholder="Digite a mensagem para os participantes..."
+                      rows={4}
+                    />
+                  </div>
+                </div>
               </>
             )}
           </CardContent>
