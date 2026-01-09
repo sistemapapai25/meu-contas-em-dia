@@ -541,6 +541,7 @@ export default function Desafios() {
               id: p.id,
               nome: p.pessoas?.nome ?? "Participante",
               telefone: p.pessoas?.telefone ?? null,
+              token: p.token_link,
             }))
             .filter((p) => !!p.telefone)
         : (() => {
@@ -551,6 +552,7 @@ export default function Desafios() {
                 id: p.id,
                 nome: p.pessoas?.nome ?? "Participante",
                 telefone: p.pessoas?.telefone ?? null,
+                token: p.token_link,
               },
             ].filter((x) => !!x.telefone);
           })();
@@ -564,8 +566,19 @@ export default function Desafios() {
     let enviados = 0;
     let falhas = 0;
 
+    const baseUrl = window.location.origin;
+
     for (const item of lista) {
-      const ok = await enviarWhatsApp(item.telefone as string, msg);
+      let textoFinal = msg;
+      
+      // Substituição de variáveis
+      const primeiroNome = item.nome.split(" ")[0];
+      textoFinal = textoFinal.replace(/{nome}/gi, primeiroNome);
+      textoFinal = textoFinal.replace(/{nome_completo}/gi, item.nome);
+      textoFinal = textoFinal.replace(/{desafio}/gi, selected.titulo);
+      textoFinal = textoFinal.replace(/{link_carne}/gi, `${baseUrl}/carne/${item.token}`);
+
+      const ok = await enviarWhatsApp(item.telefone as string, textoFinal);
       if (ok) enviados++;
       else falhas++;
       // Intervalo de 5 segundos para evitar bloqueios no WhatsApp
@@ -851,6 +864,9 @@ export default function Desafios() {
                       placeholder="Digite a mensagem para os participantes..."
                       rows={4}
                     />
+                    <div className="text-xs text-muted-foreground">
+                      Códigos disponíveis: <strong>{`{nome}`}</strong> (primeiro nome), <strong>{`{nome_completo}`}</strong>, <strong>{`{desafio}`}</strong> (título do desafio), <strong>{`{link_carne}`}</strong> (link para o carnê).
+                    </div>
                   </div>
                 </div>
               </>
