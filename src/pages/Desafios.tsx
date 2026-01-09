@@ -870,8 +870,14 @@ export default function Desafios() {
                       placeholder="Digite a mensagem para os participantes..."
                       rows={4}
                     />
-                    <div className="text-xs text-muted-foreground">
-                      Códigos disponíveis: <strong>{`{nome}`}</strong> (primeiro nome), <strong>{`{nome_completo}`}</strong>, <strong>{`{desafio}`}</strong> (título do desafio), <strong>{`{valor}`}</strong> (valor mensal), <strong>{`{pix}`}</strong> (chave pix).
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>Use os códigos abaixo para personalizar a mensagem para cada pessoa:</p>
+                      <ul className="list-disc pl-4 space-y-0.5">
+                        <li><strong>{`{nome}`}</strong>: Primeiro nome da pessoa (ex: João)</li>
+                        <li><strong>{`{desafio}`}</strong>: Nome do desafio selecionado</li>
+                        <li><strong>{`{valor}`}</strong>: Valor da parcela (R$)</li>
+                        <li><strong>{`{pix}`}</strong>: Chave Pix para pagamento</li>
+                      </ul>
                     </div>
                   </div>
                 </div>
