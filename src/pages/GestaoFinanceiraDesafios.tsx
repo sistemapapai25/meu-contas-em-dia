@@ -11,13 +11,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Search, Download, DollarSign } from "lucide-react";
 
-interface PagamentoDesafio {
+interface ParcelaDetalhe {
   id: string;
   competencia: string;
   vencimento: string;
   valor: number;
-  pago_em: string;
-  pago_valor: number;
+  pago_em: string | null;
+  pago_valor: number | null;
   status: string;
   participante: {
     pessoa: {
@@ -33,11 +33,9 @@ export default function GestaoFinanceiraDesafios() {
   const [dataInicio, setDataInicio] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [dataFim, setDataFim] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
 
-  const { data: pagamentos, isLoading, refetch } = useQuery({
-    queryKey: ["gestao-financeira-desafios", dataInicio, dataFim],
+  const { data: pagamentos, isLoading: loadingPagos, refetch: refetchPagos } = useQuery({
+    queryKey: ["gestao-financeira-pagos", dataInicio, dataFim],
     queryFn: async () => {
-      // Ajustar datas para cobrir o dia inteiro (UTC handling pode variar, mas string ISO simples resolve a maioria dos casos locais se o banco assumir timezone corretamente ou se usarmos range inclusivo)
-      // Para garantir, vamos pegar do inicio do dia ate o fim do dia
       const start = `${dataInicio}T00:00:00`;
       const end = `${dataFim}T23:59:59`;
 
@@ -62,19 +60,47 @@ export default function GestaoFinanceiraDesafios() {
         .order("pago_em", { ascending: false });
 
       if (error) throw error;
-      
-      // Cast forçado pois o tipo retornado pelo supabase-js as vezes não infere deep joins perfeitamente
-      return data as unknown as PagamentoDesafio[];
+      return data as unknown as ParcelaDetalhe[];
+    },
+  });
+
+  const { data: naoPagos, isLoading: loadingNaoPagos, refetch: refetchNaoPagos } = useQuery({
+    queryKey: ["gestao-financeira-nao-pagos", dataInicio, dataFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("desafio_parcelas")
+        .select(`
+          id,
+          competencia,
+          vencimento,
+          valor,
+          pago_em,
+          pago_valor,
+          status,
+          participante:desafio_participantes (
+            pessoa:pessoas (nome),
+            desafio:desafios (titulo)
+          )
+        `)
+        .neq("status", "PAGO")
+        .gte("vencimento", dataInicio)
+        .lte("vencimento", dataFim)
+        .order("vencimento", { ascending: true });
+
+      if (error) throw error;
+      return data as unknown as ParcelaDetalhe[];
     },
   });
 
   const totalArrecadado = pagamentos?.reduce((acc, curr) => acc + (curr.pago_valor || 0), 0) || 0;
+  const totalPendente = naoPagos?.reduce((acc, curr) => acc + (curr.valor || 0), 0) || 0;
 
   const formatMoney = (v: number) => 
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
   const handleSearch = () => {
-    refetch();
+    refetchPagos();
+    refetchNaoPagos();
   };
 
   return (
@@ -126,7 +152,7 @@ export default function GestaoFinanceiraDesafios() {
               </Button>
             </div>
 
-            <div className="w-full lg:w-auto">
+            <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-4">
               <div className="bg-green-50/50 border border-green-200 rounded-lg p-4 min-w-[200px]">
                 <div className="text-sm font-medium text-green-700 mb-1">Total Arrecadado</div>
                 <div className="text-2xl font-bold text-green-700">{formatMoney(totalArrecadado)}</div>
@@ -134,12 +160,20 @@ export default function GestaoFinanceiraDesafios() {
                   {pagamentos?.length || 0} pagamentos no período
                 </p>
               </div>
+
+              <div className="bg-red-50/50 border border-red-200 rounded-lg p-4 min-w-[200px]">
+                <div className="text-sm font-medium text-red-700 mb-1">Total Pendente</div>
+                <div className="text-2xl font-bold text-red-700">{formatMoney(totalPendente)}</div>
+                <p className="text-xs text-red-600 mt-1">
+                  {naoPagos?.length || 0} pendências no período
+                </p>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabela */}
+      {/* Tabela de Pagos */}
       <Card>
         <CardHeader>
           <CardTitle>Detalhamento de Pagamentos</CardTitle>
@@ -160,7 +194,7 @@ export default function GestaoFinanceiraDesafios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {loadingPagos ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8">Carregando dados...</TableCell>
                   </TableRow>
@@ -174,7 +208,7 @@ export default function GestaoFinanceiraDesafios() {
                   pagamentos?.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell>
-                        {format(parseISO(p.pago_em), "dd/MM/yyyy")}
+                        {p.pago_em ? format(parseISO(p.pago_em), "dd/MM/yyyy") : "-"}
                       </TableCell>
                       <TableCell className="font-medium">
                         {p.participante?.pessoa?.nome || "(Desconhecido)"}
@@ -189,6 +223,66 @@ export default function GestaoFinanceiraDesafios() {
                       </TableCell>
                       <TableCell className="text-right font-bold text-green-600">
                         {formatMoney(p.pago_valor || 0)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabela de Não Pagos */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Detalhamento de Pendências</CardTitle>
+          <CardDescription>
+            Lista de parcelas em aberto com vencimento no período selecionado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Vencimento</TableHead>
+                  <TableHead>Participante</TableHead>
+                  <TableHead>Desafio</TableHead>
+                  <TableHead>Competência</TableHead>
+                  <TableHead className="text-right">Valor Previsto</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingNaoPagos ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8">Carregando dados...</TableCell>
+                  </TableRow>
+                ) : naoPagos?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      Nenhuma pendência encontrada neste período.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  naoPagos?.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell>
+                        {format(parseISO(p.vencimento), "dd/MM/yyyy")}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {p.participante?.pessoa?.nome || "(Desconhecido)"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {p.participante?.desafio?.titulo || "(Sem Título)"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {format(parseISO(p.competencia), "MMM/yyyy", { locale: ptBR })}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-red-600">
+                        {formatMoney(p.valor || 0)}
                       </TableCell>
                     </TableRow>
                   ))
