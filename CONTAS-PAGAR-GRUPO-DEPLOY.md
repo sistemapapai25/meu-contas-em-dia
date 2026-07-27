@@ -1,89 +1,134 @@
-# Deploy — Resumo diário de Contas a Pagar no grupo do WhatsApp
+# Deploy — Aviso diário de Contas a Pagar no WhatsApp
 
-> Criado em 2026-06-23. Envia ao **grupo** do WhatsApp uma mensagem única com as contas
-> (DESPESA, em aberto) que **vencem hoje** + as **atrasadas**. Espelha a arquitetura do
-> lembrete de desafios (edge function + cron + uazapiGO + template editável).
+> Criado em 2026-06-23 (envio para **grupo** via uazapiGO).
+> **Reescrito em 2026-07-27:** o destino agora é **número individual via Meta Cloud API**,
+> com template aprovado. O caminho de grupo virou legado (a sessão UazAPI está desconectada
+> desde 2026-07 e a Cloud API não envia para `@g.us`).
+
+Envia um **resumo** das contas (DESPESA, em aberto) que vencem hoje + as atrasadas.
+Formato resumo — e não a lista item a item — porque **variável de template da Meta não aceita
+quebra de linha**, então não dá para jogar 39 contas dentro de uma variável.
 
 ## Arquivos no repositório
 
-- `supabase/functions/contas-pagar-grupo/index.ts` — a edge function.
-- `supabase/migrations/20260623120000_contas_pagar_grupo_template.sql` — template editável (tela Configuração de Mensagens).
-- `src/pages/ContasAPagar.tsx` — card "Resumo no grupo do WhatsApp" (listar grupos, pré-visualizar, enviar agora).
+- `supabase/functions/contas-pagar-grupo/index.ts` — a edge function (slug mantido para não quebrar o cron/UI).
+- `supabase/migrations/20260623120000_contas_pagar_grupo_template.sql` — template de texto livre (usado só no fallback/grupo).
+- `src/pages/ContasAPagar.tsx` — card "Aviso diário de contas a pagar".
 
-## ⚠️ Lembrete: subir no GitHub NÃO publica nada no Supabase
+---
 
-A edge function, a migration e o cron precisam ser aplicados **manualmente no painel do Supabase**
-(projeto ref `ghzwyigouhvljubitowt`).
+## Template na Meta
+
+**`contas_pagar_resumo_diario`** · pt_BR · UTILITY · criado em 2026-07-27 (id `1729654464737561`).
+
+```
+📋 *Contas a pagar — {{1}}*
+
+Vencendo hoje: {{2}} · Atrasadas: {{3}}
+💰 Total: {{4}}
+
+🔎 Maiores: {{5}}
+
+Toque no botão abaixo para ver todas as contas.
+```
+
+| Var | Conteúdo | Exemplo |
+|-----|----------|---------|
+| `{{1}}` | data | `27/07/2026` |
+| `{{2}}` | qtd vencendo hoje | `3` |
+| `{{3}}` | qtd atrasadas | `34` |
+| `{{4}}` | total | `R$ 12.345,67` |
+| `{{5}}` | as 3 maiores contas | `Aluguel APB R$ 3.000,00 (venc. 20/03) · ...` |
+
+Botão URL estático: `Ver contas a pagar` → `https://financas-papai.vercel.app/contas-a-pagar`
+
+> O conteúdo das variáveis é montado no código — dá para mudar (ex.: incluir o vencimento nas
+> "maiores") **sem** reenviar o template para aprovação. Só o texto fixo exige nova aprovação.
+
+Conferir o status: botão **Verificar template** na tela, ou `{"status_template": true}` no body.
 
 ---
 
 ## Passo 1 — Deploy da edge function
 
-1. Supabase → **Edge Functions** → **Create a new function**.
-2. Nome/slug: **`contas-pagar-grupo`** (confira a URL: `.../functions/v1/contas-pagar-grupo` — o padrão "hyper-action" precisa ser trocado ANTES do deploy).
-3. Cole o conteúdo de `supabase/functions/contas-pagar-grupo/index.ts`, **removendo a 1ª linha** `import "../deno-shim.d.ts";` (o bundler do painel não aceita).
-4. **Deploy**.
+Com a CLI já autenticada e o projeto linkado (`ghzwyigouhvljubitowt`):
 
-## Passo 2 — Criar o template editável
+```bash
+npx supabase functions deploy contas-pagar-grupo
+```
 
-No Supabase → **SQL Editor**, rode o conteúdo de
-`supabase/migrations/20260623120000_contas_pagar_grupo_template.sql`.
-Depois ele aparece na tela **Configuração de Mensagens** como
-"Resumo diario de Contas a Pagar (grupo)".
+> A CLI resolve o `import "../deno-shim.d.ts"` sozinha — **não precisa mais** remover a 1ª linha
+> nem colar o código no painel (aquele era o procedimento antigo, para deploy manual).
 
-Variáveis do template: `{data}` `{lista}` `{total}` `{qtd}` `{qtd_hoje}` `{qtd_atrasadas}`.
-A linha de cada conta (`{lista}`) é montada pelo código: `• Descrição — R$ valor (vence hoje / atrasada)`.
+## Passo 2 — Secret com o(s) número(s) de destino
 
-## Passo 3 — Descobrir o JID do grupo
+```bash
+npx supabase secrets set CONTAS_PAGAR_NUMEROS="5562984127321"
+# vários destinos: separe por vírgula
+# npx supabase secrets set CONTAS_PAGAR_NUMEROS="5562984127321,5562999998888"
+```
 
-1. Abra a tela **Contas a Pagar** no sistema.
-2. No card "Resumo no grupo do WhatsApp", clique **Listar grupos**.
-3. Clique **Usar** no grupo certo (salva o JID no navegador). Ou copie o JID (`120363...@g.us`) e cole no campo.
-4. Clique **Pré-visualizar** para ver a mensagem e **Enviar ao grupo agora** para testar de verdade.
+Outros secrets (opcionais): `ENABLE_CONTAS_PAGAR_GRUPO` (default `true`, é a trava geral do cron),
+`CONTAS_PAGAR_GRUPO_ID` (legado, só se voltar a usar grupo via uazapiGO).
 
-> Se "Listar grupos" não trouxer nada (depende da versão da uazapiGO), pegue o JID pelo painel/app
-> da uazapiGO e cole no campo manualmente.
+## Passo 3 — Testar antes do cron
 
-## Passo 4 — Envio automático às 8h (cron + secret)
+Na tela **Contas a Pagar** → card "Aviso diário de contas a pagar": digite o número,
+**Pré-visualizar** e depois **Enviar agora**.
 
-O envio do navegador (Passo 3) usa o JID salvo localmente. **O cron das 8h NÃO enxerga isso** —
-ele precisa do JID num secret.
+Ou por linha de comando:
 
-1. Supabase → **Settings → Edge Functions → Secrets** → adicione:
-   - `CONTAS_PAGAR_GRUPO_ID` = o JID do grupo (ex.: `120363012345678901@g.us`)
-   - (opcional) `ENABLE_CONTAS_PAGAR_GRUPO` = `true` (default já é `true`)
-   - `UAZAPI_BASE_URL` / `UAZAPI_TOKEN` já existem (reaproveitados do lembrete de desafios).
-2. SQL Editor — primeiro **copie o Authorization** do cron que já funciona (desafios):
-   ```sql
-   select jobid, jobname, schedule, command
-   from cron.job
-   where jobname ilike '%lembrete%' or jobname ilike '%contas%';
-   ```
-3. Crie o cron diário (use o MESMO header Authorization do job de desafios):
-   ```sql
-   select cron.schedule(
-     'contas-pagar-grupo-diario',
-     '0 8 * * *',
-     $$
-     select net.http_post(
-       url := 'https://ghzwyigouhvljubitowt.supabase.co/functions/v1/contas-pagar-grupo',
-       headers := jsonb_build_object(
-         'Content-Type', 'application/json',
-         'Authorization', 'Bearer COLE_AQUI_O_MESMO_TOKEN_DO_JOB_DE_DESAFIOS'
-       ),
-       body := '{}'::jsonb
-     );
-     $$
-   );
-   ```
-   Para refazer/atualizar: `select cron.unschedule('contas-pagar-grupo-diario');` e rode de novo.
+```bash
+# prévia (não envia)
+curl -s -X POST ".../functions/v1/contas-pagar-grupo" -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" -d '{"dry_run":true}'
 
-> Horário: `0 8 * * *` é o mesmo schedule do lembrete de desafios — então o resumo sai junto, às 8h.
-> Quando não houver nenhuma conta vencendo/atrasada, a função **não envia** (não polui o grupo).
+# envio de teste para um número específico
+curl -s -X POST ".../functions/v1/contas-pagar-grupo" -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" -d '{"numeros":["5562984127321"]}'
+```
+
+⚠️ Se a resposta vier com `"via": "texto_fallback"` e um campo `aviso`, o template **não** foi
+usado (provavelmente ainda não aprovado). Nesse caso a Meta responde 200 mas **descarta** a
+mensagem fora da janela de 24h — não confie no `enviado: true`.
+
+## Passo 4 — Cron diário às 8h
+
+```sql
+-- 1) pegue o Authorization do job que já funciona
+select jobid, jobname, schedule, command
+from cron.job
+where jobname ilike '%lembrete%' or jobname ilike '%contas%';
+
+-- 2) crie/atualize o job (use o MESMO token do job de desafios)
+select cron.unschedule('contas-pagar-grupo-diario');  -- se já existir
+select cron.schedule(
+  'contas-pagar-grupo-diario',
+  '0 8 * * *',
+  $$
+  select net.http_post(
+    url := 'https://ghzwyigouhvljubitowt.supabase.co/functions/v1/contas-pagar-grupo',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer COLE_AQUI_O_MESMO_TOKEN_DO_JOB_DE_DESAFIOS'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+Quando não houver nenhuma conta vencendo/atrasada, a função **não envia** (decisão de 2026-07-27).
 
 ## Modos da função (body do POST)
 
-- `{ "listar_grupos": true }` → lista grupos (nome + JID).
-- `{ "dry_run": true, "grupo_id": "..." }` → devolve a mensagem montada **sem enviar**.
-- `{ "grupo_id": "...@g.us" }` → envia para esse grupo (ignora o secret).
-- `{}` → envio normal do cron (usa o secret `CONTAS_PAGAR_GRUPO_ID`).
+| Body | O que faz |
+|------|-----------|
+| `{}` | envio do cron — usa o secret `CONTAS_PAGAR_NUMEROS` |
+| `{"dry_run": true}` | devolve a mensagem e os `template_params` **sem enviar** |
+| `{"status_template": true}` | status do template na Meta (APPROVED/PENDING/REJECTED) |
+| `{"numeros": ["5562..."]}` | envia para esses números (ignora o secret) |
+| `{"forcar_texto": true}` | pula o template e manda texto livre (só p/ diagnóstico) |
+| `{"enviar_vazio": true}` | envia mesmo sem nenhuma conta em aberto |
+| `{"grupo_id": "...@g.us"}` | legado — envia ao grupo via uazapiGO |
+| `{"listar_grupos": true}` | legado — lista grupos da uazapiGO |

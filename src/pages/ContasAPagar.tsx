@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Filter, Rows, Square, ChevronLeft, ChevronRight, Pencil, Calendar, Tag, User, FileText, FileCheck2, MoreVertical, Search, Send, Eye, Users, Copy, Loader2 } from 'lucide-react';
+import { Filter, Rows, Square, ChevronLeft, ChevronRight, Pencil, Calendar, Tag, User, FileText, FileCheck2, MoreVertical, Search, Send, Eye, ExternalLink, Loader2 } from 'lucide-react';
 
 import NovoLancamentoDialog from '@/components/NovoLancamentoDialog';
 import EditarLancamentoDialog from '@/components/EditarLancamentoDialog';
@@ -59,86 +59,106 @@ export default function ContasAPagar() {
 
   const [updateTrigger, setUpdateTrigger] = useState(0);
 
-  // 🔹 Resumo no grupo do WhatsApp
-  const GRUPO_LS_KEY = 'contas_pagar_grupo_jid';
-  const [grupoJid, setGrupoJid] = useState<string>(() => {
-    try { return localStorage.getItem(GRUPO_LS_KEY) || ''; } catch { return ''; }
+  // 🔹 Aviso diário de contas a pagar (WhatsApp / Meta Cloud API)
+  // O envio automático das 8h usa o secret CONTAS_PAGAR_NUMEROS. O campo abaixo vale
+  // só para os botões manuais desta tela (fica salvo no navegador).
+  const NUMEROS_LS_KEY = 'contas_pagar_numeros';
+  const [numerosAviso, setNumerosAviso] = useState<string>(() => {
+    try { return localStorage.getItem(NUMEROS_LS_KEY) || ''; } catch { return ''; }
   });
-  const [grupoBusy, setGrupoBusy] = useState<null | 'listar' | 'preview' | 'enviar'>(null);
-  const [gruposDialogOpen, setGruposDialogOpen] = useState(false);
-  const [gruposLista, setGruposLista] = useState<Array<{ id: string; nome: string }>>([]);
+  const [avisoBusy, setAvisoBusy] = useState<null | 'preview' | 'enviar' | 'status'>(null);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
-  const [previewTexto, setPreviewTexto] = useState('');
+  const [previewDados, setPreviewDados] = useState<{
+    params: string[];
+    qtd: number;
+    total: string;
+  } | null>(null);
+  const [templateStatus, setTemplateStatus] = useState<string | null>(null);
 
-  const salvarGrupoJid = (jid: string) => {
-    const v = (jid || '').trim();
-    setGrupoJid(v);
-    try { v ? localStorage.setItem(GRUPO_LS_KEY, v) : localStorage.removeItem(GRUPO_LS_KEY); } catch { /* ignore */ }
+  const salvarNumeros = (v: string) => {
+    setNumerosAviso(v);
+    try {
+      const t = (v || '').trim();
+      t ? localStorage.setItem(NUMEROS_LS_KEY, t) : localStorage.removeItem(NUMEROS_LS_KEY);
+    } catch { /* ignore */ }
   };
 
-  const listarGrupos = async () => {
-    setGrupoBusy('listar');
+  const listaNumeros = useMemo(
+    () => numerosAviso.split(/[,;\s]+/).map((n) => n.trim()).filter(Boolean),
+    [numerosAviso],
+  );
+
+  const verificarTemplate = async () => {
+    setAvisoBusy('status');
     try {
       const { data, error } = await supabase.functions.invoke('contas-pagar-grupo', {
-        body: { listar_grupos: true },
+        body: { status_template: true },
       });
       if (error) throw error;
-      const grupos = ((data as any)?.grupos ?? []) as Array<{ id: string; nome: string }>;
-      setGruposLista(grupos);
-      setGruposDialogOpen(true);
-      if (!grupos.length) {
-        toast({
-          title: 'Nenhum grupo retornado',
-          description: 'Não consegui listar os grupos pela uazapiGO. Você pode colar o JID do grupo manualmente no campo.',
-        });
-      }
+      const d = data as any;
+      setTemplateStatus(d?.status ?? null);
+      toast({
+        title: d?.aprovado ? 'Template aprovado' : `Template: ${d?.status ?? 'desconhecido'}`,
+        description: d?.aprovado
+          ? 'O aviso pode ser enviado a qualquer hora, mesmo fora da janela de 24h.'
+          : 'Enquanto não for aprovado pela Meta, o envio fora da janela de 24h não chega.',
+        variant: d?.aprovado ? undefined : 'destructive',
+      });
     } catch (e) {
-      toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao listar grupos.', variant: 'destructive' });
+      toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao consultar o template.', variant: 'destructive' });
     } finally {
-      setGrupoBusy(null);
+      setAvisoBusy(null);
     }
   };
 
-  const preVisualizarResumo = async () => {
-    setGrupoBusy('preview');
+  const preVisualizarAviso = async () => {
+    setAvisoBusy('preview');
     try {
       const { data, error } = await supabase.functions.invoke('contas-pagar-grupo', {
-        body: { dry_run: true, grupo_id: grupoJid || undefined },
+        body: { dry_run: true },
       });
       if (error) throw error;
-      setPreviewTexto((data as any)?.mensagem || '(sem mensagem)');
+      const d = data as any;
+      setPreviewDados({
+        params: (d?.template_params ?? []) as string[],
+        qtd: Number(d?.qtd ?? 0),
+        total: String(d?.total_formatado ?? ''),
+      });
       setPreviewDialogOpen(true);
     } catch (e) {
       toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao gerar prévia.', variant: 'destructive' });
     } finally {
-      setGrupoBusy(null);
+      setAvisoBusy(null);
     }
   };
 
-  const enviarResumoAgora = async () => {
-    if (!grupoJid) {
-      toast({ title: 'Defina o grupo', description: 'Escolha/cole o JID do grupo antes de enviar.', variant: 'destructive' });
+  const enviarAvisoAgora = async () => {
+    if (!listaNumeros.length) {
+      toast({ title: 'Informe o destino', description: 'Digite pelo menos um número com DDD antes de enviar.', variant: 'destructive' });
       return;
     }
-    if (!confirm('Enviar o resumo de contas a pagar de hoje para o grupo do WhatsApp AGORA?')) return;
-    setGrupoBusy('enviar');
+    if (!confirm(`Enviar o aviso de contas a pagar AGORA para ${listaNumeros.join(', ')}?`)) return;
+    setAvisoBusy('enviar');
     try {
       const { data, error } = await supabase.functions.invoke('contas-pagar-grupo', {
-        body: { grupo_id: grupoJid },
+        body: { numeros: listaNumeros },
       });
       if (error) throw error;
       const d = data as any;
-      if (d?.enviado) {
-        toast({ title: 'Enviado ao grupo', description: `${d?.qtd ?? 0} conta(s) • Total ${d?.total_formatado ?? ''}` });
+      if (d?.enviado && d?.aviso) {
+        // Caiu em texto livre: a Meta aceita (200) mas descarta fora da janela de 24h.
+        toast({ title: 'Entrega não garantida', description: d.aviso, variant: 'destructive' });
+      } else if (d?.enviado) {
+        toast({ title: 'Aviso enviado', description: `${d?.qtd ?? 0} conta(s) • Total ${d?.total_formatado ?? ''}` });
       } else if (d?.motivo === 'sem_contas') {
         toast({ title: 'Nada a enviar', description: 'Nenhuma conta vence hoje nem está atrasada.' });
       } else {
-        toast({ title: 'Não enviado', description: d?.error || 'A uazapiGO não confirmou o envio.', variant: 'destructive' });
+        toast({ title: 'Não enviado', description: d?.error || 'A Meta não confirmou o envio.', variant: 'destructive' });
       }
     } catch (e) {
-      toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao enviar resumo.', variant: 'destructive' });
+      toast({ title: 'Erro', description: e instanceof Error ? e.message : 'Falha ao enviar o aviso.', variant: 'destructive' });
     } finally {
-      setGrupoBusy(null);
+      setAvisoBusy(null);
     }
   };
 
@@ -306,38 +326,50 @@ export default function ContasAPagar() {
 
         <Card className="mb-4">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Send className="w-4 h-4" /> Resumo no grupo do WhatsApp
+            <CardTitle className="text-base flex flex-wrap items-center gap-2">
+              <Send className="w-4 h-4" /> Aviso diário de contas a pagar
+              {templateStatus && (
+                <Badge
+                  variant={templateStatus === 'APPROVED' ? 'default' : 'secondary'}
+                  className="font-normal"
+                >
+                  {templateStatus === 'APPROVED' ? 'template aprovado' : `template ${templateStatus.toLowerCase()}`}
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Envia ao grupo uma mensagem com as contas que vencem hoje (e as atrasadas em aberto).
-              O envio automático acontece todo dia às 8h.
+              Todo dia às 8h, envia por WhatsApp um resumo com quantas contas vencem hoje, quantas
+              estão atrasadas, o total e as 3 maiores. Em dias sem nenhuma conta em aberto, não envia nada.
             </p>
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
               <div className="flex-1">
-                <Label className="text-xs text-muted-foreground">JID do grupo</Label>
+                <Label className="text-xs text-muted-foreground">Número(s) de destino, com DDD</Label>
                 <Input
-                  placeholder="120363...@g.us"
-                  value={grupoJid}
-                  onChange={(e) => salvarGrupoJid(e.target.value)}
-                  className="font-mono text-sm"
+                  placeholder="62 98412-7321, 62 99999-8888"
+                  value={numerosAviso}
+                  onChange={(e) => salvarNumeros(e.target.value)}
+                  className="text-sm"
                 />
               </div>
-              <Button variant="outline" className="gap-2 sm:self-end" onClick={listarGrupos} disabled={grupoBusy !== null}>
-                {grupoBusy === 'listar' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                Listar grupos
+              <Button variant="outline" className="gap-2" onClick={verificarTemplate} disabled={avisoBusy !== null}>
+                {avisoBusy === 'status' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck2 className="w-4 h-4" />}
+                Verificar template
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Este campo vale só para os botões abaixo (fica salvo neste navegador). O envio
+              automático das 8h usa o secret <code className="font-mono">CONTAS_PAGAR_NUMEROS</code>.
+            </p>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="gap-2" onClick={preVisualizarResumo} disabled={grupoBusy !== null}>
-                {grupoBusy === 'preview' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+              <Button variant="outline" className="gap-2" onClick={preVisualizarAviso} disabled={avisoBusy !== null}>
+                {avisoBusy === 'preview' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
                 Pré-visualizar
               </Button>
-              <Button className="gap-2 bg-green-600 hover:bg-green-700" onClick={enviarResumoAgora} disabled={grupoBusy !== null}>
-                {grupoBusy === 'enviar' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Enviar ao grupo agora
+              <Button className="gap-2 bg-green-600 hover:bg-green-700" onClick={enviarAvisoAgora} disabled={avisoBusy !== null}>
+                {avisoBusy === 'enviar' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Enviar agora
               </Button>
             </div>
           </CardContent>
@@ -599,59 +631,48 @@ export default function ContasAPagar() {
         />
       )}
 
-      {/* Lista de grupos do WhatsApp para escolher o JID */}
-      <Dialog open={gruposDialogOpen} onOpenChange={setGruposDialogOpen}>
-        <DialogContent className="max-w-lg">
+      {/* Prévia do aviso, renderizado como o WhatsApp vai mostrar */}
+      <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Grupos do WhatsApp</DialogTitle>
+            <DialogTitle>Prévia do aviso</DialogTitle>
             <DialogDescription>
-              Clique em "Usar" no grupo que deve receber o resumo diário das contas a pagar.
+              {previewDados
+                ? `${previewDados.qtd} conta(s) em aberto • Total ${previewDados.total}`
+                : 'Assim a mensagem chega no WhatsApp.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-80 overflow-auto divide-y">
-            {gruposLista.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Nenhum grupo encontrado. Cole o JID manualmente no campo da tela.
-              </p>
-            )}
-            {gruposLista.map((g) => (
-              <div key={g.id} className="flex items-center justify-between gap-2 py-2">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{g.nome || '(sem nome)'}</div>
-                  <div className="text-xs text-muted-foreground font-mono truncate">{g.id}</div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Copiar JID"
-                    onClick={() => { navigator.clipboard?.writeText(g.id); toast({ title: 'JID copiado' }); }}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => { salvarGrupoJid(g.id); setGruposDialogOpen(false); toast({ title: 'Grupo selecionado', description: g.nome || g.id }); }}
-                  >
-                    Usar
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      {/* Prévia da mensagem que vai ao grupo */}
-      <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Prévia do resumo</DialogTitle>
-            <DialogDescription>É exatamente isto que será enviado ao grupo.</DialogDescription>
-          </DialogHeader>
-          <div className="bg-muted p-4 rounded-md whitespace-pre-wrap text-sm max-h-96 overflow-auto">
-            {previewTexto}
+          <div className="rounded-lg bg-[#efe7dd] p-4">
+            <div className="ml-auto max-w-[300px] rounded-lg rounded-tr-none bg-[#d9fdd3] shadow-sm">
+              <div className="px-3 pt-2 pb-1 text-sm leading-relaxed text-gray-900">
+                <p className="font-bold">📋 Contas a pagar — {previewDados?.params?.[0] ?? '—'}</p>
+                <p className="mt-2">
+                  Vencendo hoje: {previewDados?.params?.[1] ?? '0'} · Atrasadas: {previewDados?.params?.[2] ?? '0'}
+                </p>
+                <p>💰 Total: {previewDados?.params?.[3] ?? '—'}</p>
+                <p className="mt-2 break-words">🔎 Maiores: {previewDados?.params?.[4] ?? '—'}</p>
+                <p className="mt-2">Toque no botão abaixo para ver todas as contas.</p>
+                <p className="mt-1 text-right text-[11px] text-gray-500">08:00 ✓✓</p>
+              </div>
+              <div className="border-t border-black/10">
+                <a
+                  href="https://financas-papai.vercel.app/contas-a-pagar"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-2 py-2 text-sm font-medium text-[#027eb5] hover:underline"
+                >
+                  <ExternalLink className="w-4 h-4" /> Ver contas a pagar
+                </a>
+              </div>
+            </div>
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            O texto fixo vem do template aprovado na Meta (<code className="font-mono">contas_pagar_resumo_diario</code>);
+            só os valores em destaque mudam a cada dia.
+          </p>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewDialogOpen(false)}>Fechar</Button>
           </DialogFooter>
