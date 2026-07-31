@@ -181,7 +181,7 @@ export async function parseExtratoFile(file: File): Promise<ParseResult> {
   }
 
   let headerRowIdx = -1;
-  let formatType: "padrao" | "cora" = "padrao";
+  let formatType: "padrao" | "cora" | "pagseguro" = "padrao";
 
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const r = rows[i].map((x: unknown) =>
@@ -207,12 +207,25 @@ export async function parseExtratoFile(file: File): Promise<ParseResult> {
       formatType = "cora";
       break;
     }
+    if (
+      r.some((c: string) => c === "data") &&
+      r.some((c: string) => c.includes("descri")) &&
+      r.some((c: string) => c.includes("tipo")) &&
+      (
+        r.some((c: string) => c === "valor") ||
+        (r.some((c: string) => c.includes("entrada")) && r.some((c: string) => c.includes("saida") || c.includes("saída")))
+      )
+    ) {
+      headerRowIdx = i;
+      formatType = "pagseguro";
+      break;
+    }
   }
 
   if (headerRowIdx < 0) {
     return {
       ok: false,
-      erro: "Cabeçalho não encontrado. Verifique se a planilha tem colunas Data, Descrição, Crédito, Débito (formato padrão) ou Data, Transação, Tipo Transação, Valor (formato Cora).",
+      erro: "Cabeçalho não encontrado. Verifique se a planilha tem colunas Data, Descrição, Crédito, Débito (formato padrão), Data, Transação, Tipo Transação, Valor (formato Cora) ou Data, Tipo, Descrição, Valor/Entradas/Saídas (formato PagSeguro).",
     };
   }
 
@@ -250,6 +263,49 @@ export async function parseExtratoFile(file: File): Promise<ParseResult> {
 
       const valido = Boolean(data && descricao && valor && tipo);
       if (!data && !descricao && !valorRaw) continue;
+      parsed.push({ idx: i, data, descricao, credito, debito, tipo, valor, valido, erro: valido ? undefined : "Linha incompleta" });
+    }
+  } else if (formatType === "pagseguro") {
+    const idxData = header.findIndex((h: string) => h.toLowerCase() === "data");
+    const idxDesc = header.findIndex((h: string) => h.toLowerCase().includes("descri"));
+    const idxValor = header.findIndex((h: string) => h.toLowerCase() === "valor");
+    const idxEntradas = header.findIndex((h: string) => h.toLowerCase().includes("entrada"));
+    const idxSaidas = header.findIndex((h: string) => h.toLowerCase().includes("saida") || h.toLowerCase().includes("saída"));
+
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const data = normalizarDataPT(r[idxData]);
+      const descricao = r[idxDesc] != null ? String(r[idxDesc]).trim() : null;
+      const valorRaw = idxValor >= 0 ? normalizarValor(r[idxValor]) : null;
+      const entradaRaw = idxEntradas >= 0 ? normalizarValor(r[idxEntradas]) : null;
+      const saidaRaw = idxSaidas >= 0 ? normalizarValor(r[idxSaidas]) : null;
+
+      let tipo: "ENTRADA" | "SAIDA" | null = null;
+      let valor: number | null = null;
+      let credito: number | null = null;
+      let debito: number | null = null;
+
+      if (valorRaw != null && valorRaw > 0) {
+        tipo = "ENTRADA";
+        valor = valorRaw;
+        credito = valorRaw;
+      } else if (valorRaw != null && valorRaw < 0) {
+        tipo = "SAIDA";
+        valor = Math.abs(valorRaw);
+        debito = Math.abs(valorRaw);
+      } else if (entradaRaw != null && !saidaRaw) {
+        tipo = "ENTRADA";
+        valor = Math.abs(entradaRaw);
+        credito = valor;
+      } else if (saidaRaw != null && !entradaRaw) {
+        tipo = "SAIDA";
+        valor = Math.abs(saidaRaw);
+        debito = valor;
+      }
+
+      const valido = Boolean(data && descricao && valor && tipo);
+      if (!data && !descricao && !valorRaw && !entradaRaw && !saidaRaw) continue;
       parsed.push({ idx: i, data, descricao, credito, debito, tipo, valor, valido, erro: valido ? undefined : "Linha incompleta" });
     }
   } else {
