@@ -1,7 +1,11 @@
 import "../deno-shim.d.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { enviarTextoMeta, enviarTemplateMeta } from "../_shared/whatsapp-meta.ts";
+import {
+  consultarStatusTemplatesMeta,
+  enviarTextoMeta,
+  enviarTemplateMeta,
+} from "../_shared/whatsapp-meta.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,13 +49,37 @@ async function enviarWhatsAppTexto(numero: string, mensagem: string): Promise<bo
   return envio.ok;
 }
 
+/**
+ * Repete somente quando a Meta responde 429 (limite temporario). Outros erros nao sao
+ * repetidos para evitar duplicidade caso a API tenha aceitado a mensagem antes de falhar.
+ */
+async function enviarTemplateComRetry(
+  opts: Parameters<typeof enviarTemplateMeta>[0],
+  contexto: string,
+): Promise<boolean> {
+  const maxTentativas = 3;
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+    const envio = await enviarTemplateMeta(opts);
+    if (envio.ok) return true;
+
+    console.error(
+      `Erro WhatsApp Cloud API (${contexto}, tentativa ${tentativa}/${maxTentativas}):`,
+      envio.error,
+      envio.result,
+    );
+    if (envio.httpStatus !== 429 || tentativa === maxTentativas) return false;
+    await new Promise((resolve) => setTimeout(resolve, tentativa * 1000));
+  }
+  return false;
+}
+
 async function enviarWhatsAppTemplateHoje(
   numero: string,
   nome: string,
   valorFormatado: string,
   vencimentoFormatado: string
 ): Promise<boolean> {
-  const envio = await enviarTemplateMeta({
+  return await enviarTemplateComRetry({
     numero,
     templateName: "lembrete_vencimento_hoje",
     languageCode: "pt_BR",
@@ -65,11 +93,7 @@ async function enviarWhatsAppTemplateHoje(
         ],
       },
     ],
-  });
-  if (!envio.ok) {
-    console.error("Erro WhatsApp Cloud API (template hoje):", envio.error, envio.result);
-  }
-  return envio.ok;
+  }, "template hoje");
 }
 
 async function enviarWhatsAppTemplateAmanha(
@@ -79,7 +103,7 @@ async function enviarWhatsAppTemplateAmanha(
   valorFormatado: string,
   vencimentoFormatado: string
 ): Promise<boolean> {
-  const envio = await enviarTemplateMeta({
+  return await enviarTemplateComRetry({
     numero,
     templateName: "lembrete_vencimento_amanha_mantenedor",
     languageCode: "pt_BR",
@@ -94,11 +118,7 @@ async function enviarWhatsAppTemplateAmanha(
         ],
       },
     ],
-  });
-  if (!envio.ok) {
-    console.error("Erro WhatsApp Cloud API (template amanha):", envio.error, envio.result);
-  }
-  return envio.ok;
+  }, "template amanha");
 }
 
 function montarMensagemTexto(
@@ -133,6 +153,19 @@ serve(async (req) => {
   try {
     // Corpo opcional: { participante_id } => envia SOMENTE para essa pessoa (modo teste/individual)
     const body = await req.json().catch(() => ({} as any));
+
+    // Diagnostico somente leitura: consulta a Meta sem disparar mensagens.
+    if (body?.status_templates === true) {
+      const status = await consultarStatusTemplatesMeta([
+        "lembrete_vencimento_hoje",
+        "lembrete_vencimento_amanha_mantenedor",
+      ]);
+      return new Response(JSON.stringify(status), {
+        status: status.ok ? 200 : status.httpStatus,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const participanteFiltro = typeof body?.participante_id === "string" ? body.participante_id : null;
     const modoIndividual = !!participanteFiltro;
 
@@ -269,6 +302,12 @@ serve(async (req) => {
           valorFormatado,
           vencBr
         );
+
+        if (!enviado) {
+          console.log(`Fallback para texto livre do lembrete de hoje: ${pessoa.nome}`);
+          const mensagem = montarMensagemTexto(template, dadosMensagem);
+          enviado = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
+        }
       } else if (diffDays === 1) {
         enviado = await enviarWhatsAppTemplateAmanha(
           pessoa.telefone,

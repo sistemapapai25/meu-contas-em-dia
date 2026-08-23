@@ -59,9 +59,9 @@ export default function ContasAPagar() {
 
   const [updateTrigger, setUpdateTrigger] = useState(0);
 
-  // 🔹 Aviso diário de contas a pagar (WhatsApp / Meta Cloud API)
-  // O envio automático das 8h usa o secret CONTAS_PAGAR_NUMEROS. O campo abaixo vale
-  // só para os botões manuais desta tela (fica salvo no navegador).
+  // 🔹 Envio manual de contas a pagar (WhatsApp / Meta Cloud API)
+  // O agendamento automatico foi desativado. O campo abaixo vale somente para os
+  // botoes manuais desta tela (fica salvo no navegador).
   const NUMEROS_LS_KEY = 'contas_pagar_numeros';
   const [numerosAviso, setNumerosAviso] = useState<string>(() => {
     try { return localStorage.getItem(NUMEROS_LS_KEY) || ''; } catch { return ''; }
@@ -79,7 +79,8 @@ export default function ContasAPagar() {
     setNumerosAviso(v);
     try {
       const t = (v || '').trim();
-      t ? localStorage.setItem(NUMEROS_LS_KEY, t) : localStorage.removeItem(NUMEROS_LS_KEY);
+      if (t) localStorage.setItem(NUMEROS_LS_KEY, t);
+      else localStorage.removeItem(NUMEROS_LS_KEY);
     } catch { /* ignore */ }
   };
 
@@ -327,7 +328,7 @@ export default function ContasAPagar() {
         <Card className="mb-4">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex flex-wrap items-center gap-2">
-              <Send className="w-4 h-4" /> Aviso diário de contas a pagar
+              <Send className="w-4 h-4" /> Envio manual de contas a pagar
               {templateStatus && (
                 <Badge
                   variant={templateStatus === 'APPROVED' ? 'default' : 'secondary'}
@@ -340,8 +341,8 @@ export default function ContasAPagar() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Todo dia às 8h, envia por WhatsApp um resumo com quantas contas vencem hoje, quantas
-              estão atrasadas, o total e as 3 maiores. Em dias sem nenhuma conta em aberto, não envia nada.
+              O envio automático está desativado. Se precisar, use os botões abaixo para conferir
+              a prévia e enviar o resumo manualmente para um número informado.
             </p>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
               <div className="flex-1">
@@ -359,8 +360,7 @@ export default function ContasAPagar() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Este campo vale só para os botões abaixo (fica salvo neste navegador). O envio
-              automático das 8h usa o secret <code className="font-mono">CONTAS_PAGAR_NUMEROS</code>.
+              Este campo vale só para os botões abaixo e fica salvo neste navegador.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" className="gap-2" onClick={preVisualizarAviso} disabled={avisoBusy !== null}>

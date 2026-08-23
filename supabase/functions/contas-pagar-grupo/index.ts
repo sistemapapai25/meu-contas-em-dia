@@ -17,8 +17,10 @@ const UAZAPI_TOKEN = Deno.env.get("UAZAPI_TOKEN");
 const CONTAS_PAGAR_GRUPO_ID = (Deno.env.get("CONTAS_PAGAR_GRUPO_ID") ?? "").trim();
 // Destino atual: número(s) individual(is), separados por vírgula/;/espaço. Ex.: "5562984127321,5562999998888"
 const CONTAS_PAGAR_NUMEROS = (Deno.env.get("CONTAS_PAGAR_NUMEROS") ?? "").trim();
+// Falha fechada: o envio recorrente so funciona quando for explicitamente habilitado.
+// Os modos manuais (pre-visualizacao ou destino informado no body) continuam disponiveis.
 const ENABLE_CONTAS_PAGAR_GRUPO =
-  (Deno.env.get("ENABLE_CONTAS_PAGAR_GRUPO") ?? "true").toLowerCase() === "true";
+  (Deno.env.get("ENABLE_CONTAS_PAGAR_GRUPO") ?? "false").toLowerCase() === "true";
 
 const TIPO_TEMPLATE = "CONTAS_PAGAR_GRUPO_DIARIO";
 // Template aprovado na Meta (5 vars: data, qtd_hoje, qtd_atrasadas, total, maiores).
@@ -286,16 +288,34 @@ serve(async (req) => {
     // Por padrao nao manda nada quando nao ha contas; pode forcar com enviar_vazio.
     const enviarVazio = body?.enviar_vazio === true;
 
-    // Trava geral (cron). Modo manual (dry_run ou destino explicito no body) ignora a trava.
+    // Travas do cron. Modo manual (dry_run ou destino explicito no body) ignora as travas.
     const modoManual = dryRun || !!grupoIdBody || numerosBody.length > 0;
-    if (!ENABLE_CONTAS_PAGAR_GRUPO && !modoManual) {
-      return new Response(JSON.stringify({ disabled: true }), {
-        status: 200,
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data: configMsg, error: configMsgError } = await supabase
+      .from("configuracao_mensagens")
+      .select("template_mensagem,ativo")
+      .eq("tipo", TIPO_TEMPLATE)
+      .maybeSingle();
+
+    if (configMsgError) {
+      console.error("Erro ao consultar a trava do aviso de contas a pagar:", configMsgError);
+      return new Response(JSON.stringify({ error: configMsgError.message }), {
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const configAutomaticaAtiva = configMsg?.ativo === true;
+    if (!modoManual && (!ENABLE_CONTAS_PAGAR_GRUPO || !configAutomaticaAtiva)) {
+      return new Response(JSON.stringify({
+        disabled: true,
+        motivo: !ENABLE_CONTAS_PAGAR_GRUPO ? "env_desabilitada" : "configuracao_inativa",
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const hoje = toYmd(new Date());
 
@@ -348,16 +368,9 @@ serve(async (req) => {
       .join(" · ");
 
     // Template editavel (tela Configuracao de Mensagens) — usado no texto livre / grupo.
-    const { data: configsMsg } = await supabase
-      .from("configuracao_mensagens")
-      .select("*")
-      .eq("tipo", TIPO_TEMPLATE)
-      .eq("ativo", true)
-      .maybeSingle();
-
     const templatePadrao =
       "📋 *Contas a pagar de hoje ({data})*\n\n{lista}\n\n💰 Total: {total} ({qtd} conta(s))";
-    const template = (configsMsg?.template_mensagem as string) || templatePadrao;
+    const template = (configMsg?.template_mensagem as string) || templatePadrao;
 
     let mensagem = template;
     mensagem = mensagem.replace(/{data}/g, ymdToBr(hoje));

@@ -18,6 +18,14 @@ export type WhatsAppSendFail = {
 
 export type WhatsAppSendResult = WhatsAppSendOk | WhatsAppSendFail;
 
+export type WhatsAppTemplateStatus = {
+  name: string;
+  language: string | null;
+  status: string;
+  category: string | null;
+  rejectedReason: string | null;
+};
+
 const corsSafe = (msg: string) => msg;
 
 /** Normaliza telefone BR para E.164 sem '+' (ex.: 5562999999999). */
@@ -93,6 +101,68 @@ export function extrairErroMeta(result: unknown): string {
     msg = `${msg} (código Meta ${err.code})`;
   }
   return corsSafe(msg);
+}
+
+/** Consulta o estado atual de templates sem enviar mensagem. */
+export async function consultarStatusTemplatesMeta(
+  nomes: string[],
+): Promise<
+  | { ok: true; templates: WhatsAppTemplateStatus[]; ausentes: string[] }
+  | { ok: false; error: string; httpStatus: number }
+> {
+  const creds = metaCredentials();
+  if (!creds.ok) return { ok: false, error: creds.error, httpStatus: 500 };
+  if (!creds.wabaId) {
+    return {
+      ok: false,
+      error: "WHATSAPP_BUSINESS_ACCOUNT_ID nao configurado nos Secrets.",
+      httpStatus: 500,
+    };
+  }
+
+  const desejados = Array.from(new Set(nomes.map((n) => n.trim()).filter(Boolean)));
+  const params = new URLSearchParams({
+    fields: "name,status,language,category,rejected_reason",
+    limit: "200",
+  });
+  const url = `https://graph.facebook.com/${graphVersion()}/${creds.wabaId}/message_templates?${params}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${creds.token}` },
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: extrairErroMeta(result),
+        httpStatus: response.status,
+      };
+    }
+
+    const data = Array.isArray(result?.data) ? result.data : [];
+    const templates = data
+      .filter((t: any) => desejados.includes(String(t?.name ?? "")))
+      .map((t: any) => ({
+        name: String(t.name),
+        language: t.language ? String(t.language) : null,
+        status: String(t.status ?? "DESCONHECIDO"),
+        category: t.category ? String(t.category) : null,
+        rejectedReason: t.rejected_reason ? String(t.rejected_reason) : null,
+      }));
+    const encontrados = new Set(templates.map((t: WhatsAppTemplateStatus) => t.name));
+    return {
+      ok: true,
+      templates,
+      ausentes: desejados.filter((nome) => !encontrados.has(nome)),
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      httpStatus: 500,
+    };
+  }
 }
 
 /**

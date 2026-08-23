@@ -9,6 +9,10 @@ Envia um **resumo** das contas (DESPESA, em aberto) que vencem hoje + as atrasad
 Formato resumo — e não a lista item a item — porque **variável de template da Meta não aceita
 quebra de linha**, então não dá para jogar 39 contas dentro de uma variável.
 
+> **Envio automático desativado em 2026-08-23 a pedido do usuário.** O cron
+> `contas-pagar-grupo-diario` deve permanecer ausente. A função continua disponível somente para
+> pré-visualização e envio manual com destino explícito.
+
 ## Arquivos no repositório
 
 - `supabase/functions/contas-pagar-grupo/index.ts` — a edge function (slug mantido para não quebrar o cron/UI).
@@ -68,7 +72,7 @@ npx supabase secrets set CONTAS_PAGAR_NUMEROS="5562984127321"
 # npx supabase secrets set CONTAS_PAGAR_NUMEROS="5562984127321,5562999998888"
 ```
 
-Outros secrets (opcionais): `ENABLE_CONTAS_PAGAR_GRUPO` (default `true`, é a trava geral do cron),
+Outros secrets (opcionais): `ENABLE_CONTAS_PAGAR_GRUPO` (default `false`, é a trava geral do cron),
 `CONTAS_PAGAR_GRUPO_ID` (legado, só se voltar a usar grupo via uazapiGO).
 
 ## Passo 3 — Testar antes do cron
@@ -92,7 +96,7 @@ curl -s -X POST ".../functions/v1/contas-pagar-grupo" -H "Authorization: Bearer 
 usado (provavelmente ainda não aprovado). Nesse caso a Meta responde 200 mas **descarta** a
 mensagem fora da janela de 24h — não confie no `enviado: true`.
 
-## Passo 4 — Cron diário às 8h
+## Passo 4 — Cron diário às 8h (DESATIVADO)
 
 ```sql
 -- 1) pegue o Authorization do job que já funciona
@@ -117,6 +121,9 @@ select cron.schedule(
   $$
 );
 ```
+
+O bloco acima é mantido apenas como histórico. Não recriar esse job sem uma nova autorização
+explícita do usuário.
 
 Quando não houver nenhuma conta vencendo/atrasada, a função **não envia** (decisão de 2026-07-27).
 
