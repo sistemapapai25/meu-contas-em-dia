@@ -196,6 +196,7 @@ export async function enviarTextoMeta(
   }
 
   const url = `https://graph.facebook.com/${graphVersion()}/${creds.phoneNumberId}/messages`;
+  console.log("Meta antes do envio texto:", JSON.stringify({ to: `${to.slice(0, 5)}***${to.slice(-4)}`, phoneNumberId: `${creds.phoneNumberId.slice(0, 4)}***` }));
 
   try {
     const response = await fetch(url, {
@@ -217,7 +218,7 @@ export async function enviarTextoMeta(
     });
 
     const result = await response.json().catch(() => ({}));
-    console.log("Resposta Meta Cloud API:", JSON.stringify(result));
+    console.log("Resposta Meta Cloud API:", JSON.stringify({ httpStatus: response.status, result }));
 
     if (!response.ok) {
       return {
@@ -266,6 +267,7 @@ export async function enviarTemplateMeta(opts: {
 
   const to = formatarNumeroBr(opts.numero);
   const url = `https://graph.facebook.com/${graphVersion()}/${creds.phoneNumberId}/messages`;
+  console.log("Meta antes do envio template:", JSON.stringify({ to: `${to.slice(0, 5)}***${to.slice(-4)}`, phoneNumberId: `${creds.phoneNumberId.slice(0, 4)}***`, templateName: opts.templateName, languageCode: opts.languageCode || "pt_BR" }));
 
   try {
     const response = await fetch(url, {
@@ -287,7 +289,7 @@ export async function enviarTemplateMeta(opts: {
     });
 
     const result = await response.json().catch(() => ({}));
-    console.log("Resposta Meta template:", JSON.stringify(result));
+    console.log("Resposta Meta template:", JSON.stringify({ httpStatus: response.status, result }));
 
     if (!response.ok) {
       return {

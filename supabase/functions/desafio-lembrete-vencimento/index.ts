@@ -5,6 +5,7 @@ import {
   consultarStatusTemplatesMeta,
   enviarTextoMeta,
   enviarTemplateMeta,
+  type WhatsAppSendResult,
 } from "../_shared/whatsapp-meta.ts";
 
 const corsHeaders = {
@@ -27,8 +28,15 @@ function ymdFromLocalNoon(ymd: string): Date {
   return new Date(`${ymd}T12:00:00`);
 }
 
-function toYmd(date: Date): string {
-  return date.toISOString().split("T")[0];
+function toYmdSaoPaulo(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function parseDiasLembrete(value: unknown): number[] {
@@ -41,12 +49,10 @@ function parseDiasLembrete(value: unknown): number[] {
   return unique.length > 0 ? unique : fallback;
 }
 
-async function enviarWhatsAppTexto(numero: string, mensagem: string): Promise<boolean> {
+async function enviarWhatsAppTexto(numero: string, mensagem: string): Promise<WhatsAppSendResult> {
   const envio = await enviarTextoMeta(numero, mensagem);
-  if (!envio.ok) {
-    console.error("Erro WhatsApp Cloud API (texto):", envio.error, envio.result);
-  }
-  return envio.ok;
+  if (!envio.ok) console.error("Erro WhatsApp Cloud API (texto):", envio.error, envio.result);
+  return envio;
 }
 
 /**
@@ -56,21 +62,23 @@ async function enviarWhatsAppTexto(numero: string, mensagem: string): Promise<bo
 async function enviarTemplateComRetry(
   opts: Parameters<typeof enviarTemplateMeta>[0],
   contexto: string,
-): Promise<boolean> {
+): Promise<WhatsAppSendResult> {
+  let ultimoEnvio: WhatsAppSendResult | null = null;
   const maxTentativas = 3;
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
     const envio = await enviarTemplateMeta(opts);
-    if (envio.ok) return true;
+    if (envio.ok) return envio;
+    ultimoEnvio = envio;
 
     console.error(
       `Erro WhatsApp Cloud API (${contexto}, tentativa ${tentativa}/${maxTentativas}):`,
       envio.error,
       envio.result,
     );
-    if (envio.httpStatus !== 429 || tentativa === maxTentativas) return false;
+    if (envio.httpStatus !== 429 || tentativa === maxTentativas) return envio;
     await new Promise((resolve) => setTimeout(resolve, tentativa * 1000));
   }
-  return false;
+  return ultimoEnvio ?? { ok: false, provider: "meta", error: "Falha sem resposta da Meta", httpStatus: 500, result: {} };
 }
 
 async function enviarWhatsAppTemplateHoje(
@@ -78,7 +86,7 @@ async function enviarWhatsAppTemplateHoje(
   nome: string,
   valorFormatado: string,
   vencimentoFormatado: string
-): Promise<boolean> {
+): Promise<WhatsAppSendResult> {
   return await enviarTemplateComRetry({
     numero,
     templateName: "lembrete_vencimento_hoje",
@@ -102,7 +110,7 @@ async function enviarWhatsAppTemplateAmanha(
   desafioTitulo: string,
   valorFormatado: string,
   vencimentoFormatado: string
-): Promise<boolean> {
+): Promise<WhatsAppSendResult> {
   return await enviarTemplateComRetry({
     numero,
     templateName: "lembrete_vencimento_amanha_mantenedor",
@@ -151,6 +159,7 @@ serve(async (req) => {
   }
 
   try {
+    console.log("Início desafio-lembrete-vencimento", JSON.stringify({ at: new Date().toISOString(), method: req.method }));
     // Corpo opcional: { participante_id } => envia SOMENTE para essa pessoa (modo teste/individual)
     const body = await req.json().catch(() => ({} as any));
 
@@ -179,7 +188,9 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const dataHoje = toYmd(new Date());
+    const agora = new Date();
+    const dataHoje = toYmdSaoPaulo(agora);
+    console.log("Data considerada como hoje:", JSON.stringify({ iso: agora.toISOString(), saoPaulo: dataHoje, timeZone: "America/Sao_Paulo" }));
     const hojeNoon = ymdFromLocalNoon(dataHoje);
 
     const { data: desafiosCfg } = await supabase
@@ -190,7 +201,7 @@ serve(async (req) => {
     const offsetsAll = (desafiosCfg ?? []).flatMap((d: any) => parseDiasLembrete(d?.lembrete_dias_antes));
     const maxOffset = Math.min(Math.max(0, ...offsetsAll, 1), 365);
     const datas = Array.from({ length: maxOffset + 1 }, (_, i) =>
-      toYmd(new Date(hojeNoon.getTime() + i * 86400000))
+      toYmdSaoPaulo(new Date(hojeNoon.getTime() + i * 86400000))
     );
 
     const selectExpr = `
@@ -249,13 +260,16 @@ serve(async (req) => {
     let enviados = 0;
     let falhas = 0;
     let pulados = 0;
+    const diagnosticos: unknown[] = [];
 
     for (const parcela of parcelas ?? []) {
+      console.log("Parcela selecionada:", JSON.stringify({ id: parcela.id, vencimento: parcela.vencimento, participante_id: parcela.participante_id }));
       const participante = parcela.desafio_participantes as any;
       const pessoa = participante?.pessoas;
       const desafio = participante?.desafios;
 
       if (!pessoa?.telefone) {
+        console.error("Parcela pulada sem telefone:", parcela.id);
         pulados++;
         continue;
       }
@@ -266,6 +280,7 @@ serve(async (req) => {
       if (!modoIndividual) {
         const diasLembrete = parseDiasLembrete(desafio?.lembrete_dias_antes);
         if (!diasLembrete.includes(diffDays)) {
+          console.log("Parcela pulada por configuração de dias:", JSON.stringify({ id: parcela.id, diffDays, diasLembrete }));
           pulados++;
           continue;
         }
@@ -273,6 +288,7 @@ serve(async (req) => {
 
       const template = getTemplate(diffDays);
       if (!template) {
+        console.error("Parcela pulada sem template ativo:", JSON.stringify({ id: parcela.id, diffDays }));
         pulados++;
         continue;
       }
@@ -293,23 +309,24 @@ serve(async (req) => {
         carneUrl,
       };
 
-      let enviado: boolean;
+      let envio: WhatsAppSendResult;
+      console.log("Antes da chamada Meta:", JSON.stringify({ parcelaId: parcela.id, telefone: `${String(pessoa.telefone).replace(/\D/g, "").slice(0, 5)}***${String(pessoa.telefone).replace(/\D/g, "").slice(-4)}`, diffDays, template: diffDays === 0 ? "lembrete_vencimento_hoje" : "lembrete_vencimento_amanha_mantenedor" }));
 
       if (diffDays === 0) {
-        enviado = await enviarWhatsAppTemplateHoje(
+        envio = await enviarWhatsAppTemplateHoje(
           pessoa.telefone,
           primeiroNome,
           valorFormatado,
           vencBr
         );
 
-        if (!enviado) {
+        if (!envio.ok) {
           console.log(`Fallback para texto livre do lembrete de hoje: ${pessoa.nome}`);
           const mensagem = montarMensagemTexto(template, dadosMensagem);
-          enviado = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
+          envio = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
         }
       } else if (diffDays === 1) {
-        enviado = await enviarWhatsAppTemplateAmanha(
+        envio = await enviarWhatsAppTemplateAmanha(
           pessoa.telefone,
           primeiroNome,
           desafio?.titulo || "Mantenedores",
@@ -317,16 +334,18 @@ serve(async (req) => {
           vencBr
         );
 
-        if (!enviado) {
+        if (!envio.ok) {
           console.log(`Fallback para texto livre do lembrete de amanha: ${pessoa.nome}`);
           const mensagem = montarMensagemTexto(template, dadosMensagem);
-          enviado = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
+          envio = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
         }
       } else {
         const mensagem = montarMensagemTexto(template, dadosMensagem);
-        enviado = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
+        envio = await enviarWhatsAppTexto(pessoa.telefone, mensagem);
       }
-      if (enviado) {
+      console.log("Resultado do envio Meta:", JSON.stringify({ parcelaId: parcela.id, ok: envio.ok, httpStatus: envio.ok ? 200 : envio.httpStatus, result: envio.result, error: envio.ok ? undefined : envio.error }));
+      if (modoIndividual) diagnosticos.push({ parcelaId: parcela.id, ok: envio.ok, httpStatus: envio.ok ? 200 : envio.httpStatus, result: envio.result, error: envio.ok ? undefined : envio.error });
+      if (envio.ok) {
         enviados++;
         console.log(`Lembrete enviado para ${pessoa.nome} (D-${diffDays})`);
       } else {
@@ -345,6 +364,7 @@ serve(async (req) => {
       falhas,
       pulados,
       max_offset: maxOffset,
+      ...(modoIndividual ? { diagnosticos } : {}),
     };
 
     console.log("Resultado:", resultado);
