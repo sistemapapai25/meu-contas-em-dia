@@ -1,0 +1,2 @@
+-- Stub: migration ja aplicada na producao (existia so no historico remoto).
+-- Criado em 2026-08-24 para alinhar historico local/remoto sem executar nada.
